@@ -662,6 +662,8 @@ sendButton.addEventListener(
         result
       );
 
+      renderDiagnosis(result);
+
       let overlayImage = null;
 
       if (result?.overlay_image) {
