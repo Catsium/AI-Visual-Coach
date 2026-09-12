@@ -1,0 +1,9 @@
+{
+    "manifest_version": 3,
+    "name": "AI Visual Coach",
+    "version": "1.0.0",
+    "description": "alpha test",
+    "action" : {
+
+    }
+}
