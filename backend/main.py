@@ -1,3 +1,6 @@
+import base64
+import binascii
+import io
 import json
 import os
 from datetime import datetime, timezone
@@ -8,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 import requests
 import psycopg
+from openai import OpenAI
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -20,6 +24,18 @@ from teaching import (
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
+
+SUPPORTED_ACTION_DEFINITIONS = {
+    "change_font_size": "Change the size of existing text.",
+    "change_font_weight": "Change existing text between regular and bold weight.",
+    "change_font_color": "Change the colour of existing text.",
+    "change_text_alignment": "Change the alignment of existing text.",
+    "move_object": "Move an existing object on the slide.",
+    "resize_object": "Resize an existing object on the slide.",
+    "insert_user_sourced_image": (
+        "Insert an image that the user finds and supplies, then position or resize it."
+    ),
+}
 
 
 def get_database_url() -> str:
@@ -70,6 +86,32 @@ class DiagnoseResponse(BaseModel):
     coach_message: str
     problems: list[DiagnosisChange]
     additions: list[DiagnosisChange]
+
+
+class HologramRequest(BaseModel):
+    session_id: UUID
+    slide_id: str = Field(min_length=1)
+    user_request: str = Field(min_length=1)
+    slide_image: str
+
+
+class ReviseHologramRequest(HologramRequest):
+    current_hologram: str = ""
+    feedback: str = Field(min_length=1)
+
+
+class HologramResponse(BaseModel):
+    session_id: UUID
+    slide_id: str
+    hologram_image: str
+    summary: str
+
+
+class PromptCompilerResponse(BaseModel):
+    can_apply: bool
+    image_prompt: str
+    summary: str
+    rejection_reason: str
 
 
 def normalize_image_data(slide_image: str) -> str:
@@ -178,7 +220,8 @@ The user-facing response should read like a short design coach note, not raw JSO
 
 General rules:
 - Recommend only changes that can be taught using the supplied supported actions.
-- If no supported action can implement a proposed change, set supported_action to null.
+- If no supplied supported action can implement a proposed finding, omit that finding entirely.
+- Never include an unsupported finding merely to give general design advice.
 - Do not invent presentation-editing capabilities.
 - Analyze only what can reasonably be seen in the supplied slide image.
 - Keep evidence concrete and tied to visible parts of the slide.
@@ -199,8 +242,8 @@ Visual and image suggestions:
 - Be specific enough to guide the user.
 - For example, prefer "a warm photo of people sharing a meal" over "add a picture".
 - Prefer one strong supporting visual over several unnecessary images.
-- If an image should be added, use "insert_image" as supported_action.
-- Do not suggest image insertion if "insert_image" is not in the supplied supported actions.
+- If a user-sourced image should be added, use "insert_user_sourced_image" as supported_action.
+- Do not suggest image insertion if "insert_user_sourced_image" is not in the supplied supported actions.
 - The image suggestion does not need to match an exact generated image later; it should describe the useful visual direction.
 
 Structured diagnosis rules:
@@ -355,6 +398,229 @@ Do not copy the example wording. Base the response on the actual slide.
     )
 
 
+def prompt_compiler_json_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "can_apply": {"type": "boolean"},
+            "image_prompt": {"type": "string"},
+            "summary": {"type": "string"},
+            "rejection_reason": {"type": "string"},
+        },
+        "required": [
+            "can_apply",
+            "image_prompt",
+            "summary",
+            "rejection_reason",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def call_openrouter_prompt_compiler(
+    diagnosis: dict,
+    user_request: str,
+    feedback: str | None = None,
+) -> PromptCompilerResponse:
+    """Compile an image-edit prompt without sending either source image to Luna."""
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OPENROUTER_API_KEY is not configured",
+        )
+
+    revision_text = feedback if feedback is not None else "No revision feedback."
+    prompt = f"""
+You are the text-only prompt compiler for a presentation slide image editor.
+
+Complete saved structured diagnosis:
+{json.dumps(diagnosis, ensure_ascii=False)}
+
+Canonical supported action definitions:
+{json.dumps(SUPPORTED_ACTION_DEFINITIONS, ensure_ascii=False)}
+
+Original user request:
+{user_request}
+
+Latest revision feedback:
+{revision_text}
+
+Decide whether the requested image edit can be expressed using only the diagnosed
+changes and canonical supported actions. For a revision, reject feedback that asks
+for any meaningful change outside those saved diagnosed changes. Never introduce
+new facts, text, objects, branding, or imagery beyond the diagnosis.
+
+If it is supported, set can_apply to true, write a precise image_prompt containing
+only the allowed changes, provide a short user-facing summary, and use an empty
+rejection_reason. If it is unsupported, set can_apply to false, leave image_prompt
+and summary empty, and explain the constraint briefly in rejection_reason.
+"""
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            }
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "slide_image_prompt",
+                "strict": True,
+                "schema": prompt_compiler_json_schema(),
+            },
+        },
+        "provider": {"require_parameters": True},
+        "plugins": [{"id": "response-healing"}],
+    }
+
+    try:
+        response = requests.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Prompt compilation failed.",
+        ) from exc
+
+    if not response.ok:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Prompt compilation failed.",
+        )
+
+    try:
+        content = response.json()["choices"][0]["message"]["content"]
+        compiled = PromptCompilerResponse.model_validate_json(content)
+        if compiled.can_apply and (
+            not compiled.image_prompt.strip() or not compiled.summary.strip()
+        ):
+            raise ValueError("Accepted compiler response is incomplete")
+        if not compiled.can_apply and not compiled.rejection_reason.strip():
+            raise ValueError("Rejected compiler response has no reason")
+    except (KeyError, IndexError, TypeError, ValueError, ValidationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Prompt compiler returned an invalid response.",
+        ) from exc
+
+    return compiled
+
+
+def load_saved_diagnosis(session_id: UUID, slide_id: str) -> dict:
+    """Load the exact persisted diagnosis after confirming the session exists."""
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT session_id
+                    FROM coach_sessions
+                    WHERE session_id = %s
+                    """,
+                    (session_id,),
+                )
+                if cur.fetchone() is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Unknown session_id",
+                    )
+
+                cur.execute(
+                    """
+                    SELECT diagnosis
+                    FROM coach_slides
+                    WHERE session_id = %s
+                      AND slide_id = %s
+                      AND diagnosis IS NOT NULL
+                    """,
+                    (session_id, slide_id),
+                )
+                row = cur.fetchone()
+    except HTTPException:
+        raise
+    except psycopg.Error as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database error while loading diagnosis.",
+        ) from exc
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Diagnose this slide before generating an edited version.",
+        )
+
+    diagnosis = row["diagnosis"]
+    changes = diagnosis.get("problems", []) + diagnosis.get("additions", [])
+    if any(change.get("supported_action") is None for change in changes):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The saved diagnosis contains an unsupported change.",
+        )
+    return diagnosis
+
+
+def decode_image_data_url(data_url: str, filename: str) -> io.BytesIO:
+    header, separator, encoded = data_url.partition(",")
+    if (
+        separator != ","
+        or not header.startswith("data:image/")
+        or not header.endswith(";base64")
+        or not encoded
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image data URL.",
+        )
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image data URL.",
+        ) from exc
+    if not image_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image data URL.",
+        )
+
+    image = io.BytesIO(image_bytes)
+    image.name = filename
+    return image
+
+
+def generate_hologram_image(prompt: str, images: list[io.BytesIO]) -> str:
+    try:
+        response = OpenAI(api_key=os.getenv("OPENAI_API_KEY")).images.edit(
+            model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare"),
+            image=images,
+            prompt=prompt,
+            quality=os.getenv("OPENAI_IMAGE_QUALITY", "medium"),
+            output_format="png",
+        )
+        encoded = response.data[0].b64_json
+        if not isinstance(encoded, str) or not encoded:
+            raise ValueError("Image response did not contain b64_json")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Image generation failed.",
+        ) from exc
+    return f"data:image/png;base64,{encoded}"
+
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -493,3 +759,63 @@ def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
         ) from exc
 
     return diagnosis
+@app.post("/hologram", response_model=HologramResponse)
+def create_hologram(request: HologramRequest) -> HologramResponse:
+    diagnosis = load_saved_diagnosis(request.session_id, request.slide_id)
+    original_image = decode_image_data_url(request.slide_image, "original-slide.png")
+    compiled = call_openrouter_prompt_compiler(
+        diagnosis=diagnosis,
+        user_request=request.user_request,
+    )
+    if not compiled.can_apply:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=compiled.rejection_reason,
+        )
+
+    return HologramResponse(
+        session_id=request.session_id,
+        slide_id=request.slide_id,
+        hologram_image=generate_hologram_image(
+            prompt=compiled.image_prompt,
+            images=[original_image],
+        ),
+        summary=compiled.summary,
+    )
+
+
+@app.post("/revise-hologram", response_model=HologramResponse)
+def revise_hologram(request: ReviseHologramRequest) -> HologramResponse:
+    if not request.current_hologram:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No generated image is available to revise.",
+        )
+
+    diagnosis = load_saved_diagnosis(request.session_id, request.slide_id)
+    current_image = decode_image_data_url(
+        request.current_hologram,
+        "current-hologram.png",
+    )
+    original_image = decode_image_data_url(request.slide_image, "original-slide.png")
+    compiled = call_openrouter_prompt_compiler(
+        diagnosis=diagnosis,
+        user_request=request.user_request,
+        feedback=request.feedback,
+    )
+    if not compiled.can_apply:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=compiled.rejection_reason,
+        )
+
+    return HologramResponse(
+        session_id=request.session_id,
+        slide_id=request.slide_id,
+        hologram_image=generate_hologram_image(
+            prompt=compiled.image_prompt,
+            images=[current_image, original_image],
+        ),
+        summary=compiled.summary,
+    )
+
