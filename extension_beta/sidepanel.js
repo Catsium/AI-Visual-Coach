@@ -73,6 +73,28 @@ function loadImage(src) {
   });
 }
 
+async function compactTeachingImage(dataUrl, maxDimension = 1280) {
+  const image = await loadImage(dataUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+
+  if (!width || !height) {
+    return dataUrl;
+  }
+
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
+  if (scale === 1) {
+    return dataUrl;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.82);
+}
+
 async function getOrCreateSession() {
   const stored =
     await chrome.storage.session.get(
@@ -991,21 +1013,40 @@ async function requestTeachingPlan() {
     throw new Error("Generate a fixed version before starting the lesson.");
   }
 
-  const response = await fetch(
-    `${BACKEND_URL}/teach`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        session_id: currentDiagnosis.session_id,
-        slide_id: currentDiagnosis.slide_id,
-        slide_image: lastCapturedSlideDataUrl,
-        current_hologram_image: currentHologramDataUrl
-      })
+  const [slideImage, hologramImage] = await Promise.all([
+    compactTeachingImage(lastCapturedSlideDataUrl),
+    compactTeachingImage(currentHologramDataUrl),
+  ]);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 75000);
+
+  let response;
+  try {
+    response = await fetch(
+      `${BACKEND_URL}/teach`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          session_id: currentDiagnosis.session_id,
+          slide_id: currentDiagnosis.slide_id,
+          slide_image: slideImage,
+          current_hologram_image: hologramImage
+        }),
+        signal: controller.signal,
+      }
+    );
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Teaching plan timed out. Please try Show me how again.");
     }
-  );
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     throw new Error(
