@@ -411,11 +411,12 @@ async function sendSlideToBackend(userRequest) {
       },
 
       body: JSON.stringify({
-        session_id:
-          currentSessionId,
+        session_id: currentSessionId,
+        slide_id: slideId,
 
-        slide_id:
-          slideId,
+        user_request: userRequest,
+
+        slide_image: lastCapturedSlideDataUrl,
 
         supported_actions: [
           "highlight",
