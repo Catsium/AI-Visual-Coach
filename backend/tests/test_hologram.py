@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from main import app
+from main import DiagnosisChange, app, sanitize_supported_actions
 
 
 def image_data_url(payload: bytes) -> str:
@@ -152,6 +152,30 @@ class HologramEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         luna.assert_not_called()
 
+    def test_unknown_supported_action_in_saved_diagnosis_is_a_conflict(self) -> None:
+        self.diagnosis["problems"][0]["supported_action"] = "invented_action"
+        database = FakeDatabase(diagnosis=self.diagnosis)
+        with (
+            patch("main.get_db", return_value=database),
+            patch("main.requests.post") as luna,
+        ):
+            response = self.client.post("/hologram", json=self.generation_payload)
+
+        self.assertEqual(response.status_code, 409)
+        luna.assert_not_called()
+
+    def test_diagnosis_sanitization_rejects_client_invented_actions(self) -> None:
+        change = DiagnosisChange(
+            issue="Invented action",
+            evidence="Visible evidence",
+            fix="Unsupported fix",
+            supported_action="invented_action",
+        )
+
+        sanitized = sanitize_supported_actions([change], {"invented_action"})
+
+        self.assertIsNone(sanitized[0].supported_action)
+
     def test_user_sourced_image_is_a_canonical_supported_action(self) -> None:
         self.diagnosis["problems"][0]["supported_action"] = "insert_user_sourced_image"
         database = FakeDatabase(diagnosis=self.diagnosis)
@@ -192,6 +216,34 @@ class HologramEndpointTests(unittest.TestCase):
         )
         self.assertEqual(len(request_json["messages"][0]["content"]), 1)
 
+    def test_revision_luna_request_contains_no_image_data(self) -> None:
+        database = FakeDatabase(diagnosis=self.diagnosis)
+        openai_client = self.openai_success()
+        payload = {
+            "session_id": self.session_id,
+            "slide_id": "slide-1",
+            "user_feedback": "Use a calmer blue for the title",
+            "slide_image": image_data_url(b"revision-original"),
+            "current_hologram_image": image_data_url(b"revision-current"),
+        }
+        with (
+            patch("main.get_db", return_value=database),
+            patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
+            patch("main.requests.post", return_value=self.luna_acceptance()) as luna,
+            patch("main.OpenAI", return_value=openai_client),
+        ):
+            response = self.client.post("/revise-hologram", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        request_json = luna.call_args.kwargs["json"]
+        serialized = json.dumps(request_json)
+        self.assertIn(payload["user_feedback"], serialized)
+        self.assertNotIn(payload["slide_image"], serialized)
+        self.assertNotIn(payload["current_hologram_image"], serialized)
+        self.assertNotIn("revision-original", serialized)
+        self.assertNotIn("revision-current", serialized)
+        self.assertEqual(len(request_json["messages"][0]["content"]), 1)
+
     def test_unsupported_revision_feedback_prevents_image_generation(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
         rejection = FakeResponse(
@@ -203,9 +255,11 @@ class HologramEndpointTests(unittest.TestCase):
             }
         )
         payload = {
-            **self.generation_payload,
-            "current_hologram": image_data_url(b"current-hologram"),
-            "feedback": "Replace the diagnosed content with an unrelated sales chart",
+            "session_id": self.session_id,
+            "slide_id": "slide-1",
+            "user_feedback": "Replace the diagnosed content with an unrelated sales chart",
+            "slide_image": self.generation_payload["slide_image"],
+            "current_hologram_image": image_data_url(b"current-hologram"),
         }
         with (
             patch("main.get_db", return_value=database),
@@ -226,9 +280,11 @@ class HologramEndpointTests(unittest.TestCase):
         database = FakeDatabase(diagnosis=self.diagnosis)
         openai_client = self.openai_success("cmV2aXNlZA==")
         payload = {
-            **self.generation_payload,
-            "current_hologram": image_data_url(b"current-hologram"),
-            "feedback": "Use a calmer blue for the title",
+            "session_id": self.session_id,
+            "slide_id": "slide-1",
+            "user_feedback": "Use a calmer blue for the title",
+            "slide_image": self.generation_payload["slide_image"],
+            "current_hologram_image": image_data_url(b"current-hologram"),
         }
         with (
             patch("main.get_db", return_value=database),
@@ -275,17 +331,34 @@ class HologramEndpointTests(unittest.TestCase):
             {
                 "session_id": self.session_id,
                 "slide_id": "slide-1",
-                "hologram_image": "data:image/png;base64,cG5nLWJ5dGVz",
+                "image_data_url": "data:image/png;base64,cG5nLWJ5dGVz",
                 "summary": "Improved title",
             },
         )
 
+    def test_revision_rejects_old_public_field_aliases(self) -> None:
+        database = FakeDatabase(diagnosis=self.diagnosis)
+        old_contract_payload = {
+            **self.generation_payload,
+            "current_hologram": image_data_url(b"current-hologram"),
+            "feedback": "Use blue",
+        }
+        with patch("main.get_db", return_value=database):
+            response = self.client.post(
+                "/revise-hologram",
+                json=old_contract_payload,
+            )
+
+        self.assertEqual(response.status_code, 422)
+
     def test_revision_requires_a_current_hologram(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
         payload = {
-            **self.generation_payload,
-            "current_hologram": "",
-            "feedback": "Use blue",
+            "session_id": self.session_id,
+            "slide_id": "slide-1",
+            "user_feedback": "Use blue",
+            "slide_image": self.generation_payload["slide_image"],
+            "current_hologram_image": "",
         }
         with patch("main.get_db", return_value=database):
             response = self.client.post("/revise-hologram", json=payload)
@@ -296,18 +369,61 @@ class HologramEndpointTests(unittest.TestCase):
             "No generated image is available to revise.",
         )
 
+    def test_revision_validates_unknown_session_before_missing_hologram(self) -> None:
+        database = FakeDatabase(session_exists=False, diagnosis=self.diagnosis)
+        payload = {
+            "session_id": self.session_id,
+            "slide_id": "slide-1",
+            "user_feedback": "Use blue",
+            "slide_image": self.generation_payload["slide_image"],
+            "current_hologram_image": "",
+        }
+        with patch("main.get_db", return_value=database):
+            response = self.client.post("/revise-hologram", json=payload)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Unknown session_id")
+
     def test_malformed_data_urls_are_rejected(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
         malformed_payloads = [
             {**self.generation_payload, "slide_image": "not-a-data-url"},
             {
-                **self.generation_payload,
-                "current_hologram": "data:image/png;base64,%%%",
-                "feedback": "Use blue",
+                "session_id": self.session_id,
+                "slide_id": "slide-1",
+                "user_feedback": "Use blue",
+                "slide_image": self.generation_payload["slide_image"],
+                "current_hologram_image": "data:image/png;base64,%%%",
             },
         ]
         paths = ["/hologram", "/revise-hologram"]
         for path, payload in zip(paths, malformed_payloads):
+            with self.subTest(path=path), patch("main.get_db", return_value=database):
+                response = self.client.post(path, json=payload)
+            self.assertEqual(response.status_code, 400)
+
+    def test_image_data_urls_embedded_in_user_text_are_rejected(self) -> None:
+        database = FakeDatabase(diagnosis=self.diagnosis)
+        payloads = [
+            (
+                "/hologram",
+                {
+                    **self.generation_payload,
+                    "user_request": "Apply data:image/png;base64,c2VjcmV0",
+                },
+            ),
+            (
+                "/revise-hologram",
+                {
+                    "session_id": self.session_id,
+                    "slide_id": "slide-1",
+                    "user_feedback": "Copy data:image/png;base64,c2VjcmV0",
+                    "slide_image": self.generation_payload["slide_image"],
+                    "current_hologram_image": image_data_url(b"current"),
+                },
+            ),
+        ]
+        for path, payload in payloads:
             with self.subTest(path=path), patch("main.get_db", return_value=database):
                 response = self.client.post(path, json=payload)
             self.assertEqual(response.status_code, 400)

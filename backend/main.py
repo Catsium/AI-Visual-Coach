@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import requests
 import psycopg
 from openai import OpenAI
@@ -89,21 +89,28 @@ class DiagnoseResponse(BaseModel):
 
 
 class HologramRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     session_id: UUID
     slide_id: str = Field(min_length=1)
     user_request: str = Field(min_length=1)
     slide_image: str
 
 
-class ReviseHologramRequest(HologramRequest):
-    current_hologram: str = ""
-    feedback: str = Field(min_length=1)
+class ReviseHologramRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    slide_id: str = Field(min_length=1)
+    user_feedback: str = Field(min_length=1)
+    slide_image: str
+    current_hologram_image: str = ""
 
 
 class HologramResponse(BaseModel):
     session_id: UUID
     slide_id: str
-    hologram_image: str
+    image_data_url: str
     summary: str
 
 
@@ -165,8 +172,11 @@ def sanitize_supported_actions(
     changes: list["DiagnosisChange"], allowed_actions: set[str]
 ) -> list["DiagnosisChange"]:
     """Never allow model output to invent an unsupported PowerPoint action."""
+    canonical_allowed_actions = allowed_actions.intersection(
+        SUPPORTED_ACTION_DEFINITIONS
+    )
     for change in changes:
-        if change.supported_action not in allowed_actions:
+        if change.supported_action not in canonical_allowed_actions:
             change.supported_action = None
     return changes
 
@@ -182,9 +192,14 @@ def call_openrouter_diagnosis(
             detail="OPENROUTER_API_KEY is not configured",
         )
 
+    canonical_requested_actions = [
+        action
+        for action in request.supported_actions
+        if action in SUPPORTED_ACTION_DEFINITIONS
+    ]
     supported_actions_text = (
-        ", ".join(request.supported_actions)
-        if request.supported_actions
+        ", ".join(canonical_requested_actions)
+        if canonical_requested_actions
         else "NONE"
     )
 
@@ -390,7 +405,7 @@ Do not copy the example wording. Base the response on the actual slide.
             detail="OpenRouter returned an invalid diagnosis response",
         ) from exc
 
-    allowed_actions = set(request.supported_actions)
+    allowed_actions = set(canonical_requested_actions)
     return (
         coach_message,
         sanitize_supported_actions(problems, allowed_actions),
@@ -563,7 +578,10 @@ def load_saved_diagnosis(session_id: UUID, slide_id: str) -> dict:
 
     diagnosis = row["diagnosis"]
     changes = diagnosis.get("problems", []) + diagnosis.get("additions", [])
-    if any(change.get("supported_action") is None for change in changes):
+    if any(
+        change.get("supported_action") not in SUPPORTED_ACTION_DEFINITIONS
+        for change in changes
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The saved diagnosis contains an unsupported change.",
@@ -599,6 +617,14 @@ def decode_image_data_url(data_url: str, filename: str) -> io.BytesIO:
     image = io.BytesIO(image_bytes)
     image.name = filename
     return image
+
+
+def reject_embedded_image_data(text: str) -> None:
+    if "data:image/" in text.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image data URLs are not allowed in user text.",
+        )
 
 
 def generate_hologram_image(prompt: str, images: list[io.BytesIO]) -> str:
@@ -762,6 +788,7 @@ def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
 @app.post("/hologram", response_model=HologramResponse)
 def create_hologram(request: HologramRequest) -> HologramResponse:
     diagnosis = load_saved_diagnosis(request.session_id, request.slide_id)
+    reject_embedded_image_data(request.user_request)
     original_image = decode_image_data_url(request.slide_image, "original-slide.png")
     compiled = call_openrouter_prompt_compiler(
         diagnosis=diagnosis,
@@ -776,7 +803,7 @@ def create_hologram(request: HologramRequest) -> HologramResponse:
     return HologramResponse(
         session_id=request.session_id,
         slide_id=request.slide_id,
-        hologram_image=generate_hologram_image(
+        image_data_url=generate_hologram_image(
             prompt=compiled.image_prompt,
             images=[original_image],
         ),
@@ -786,22 +813,23 @@ def create_hologram(request: HologramRequest) -> HologramResponse:
 
 @app.post("/revise-hologram", response_model=HologramResponse)
 def revise_hologram(request: ReviseHologramRequest) -> HologramResponse:
-    if not request.current_hologram:
+    diagnosis = load_saved_diagnosis(request.session_id, request.slide_id)
+    if not request.current_hologram_image:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No generated image is available to revise.",
         )
 
-    diagnosis = load_saved_diagnosis(request.session_id, request.slide_id)
+    reject_embedded_image_data(request.user_feedback)
     current_image = decode_image_data_url(
-        request.current_hologram,
+        request.current_hologram_image,
         "current-hologram.png",
     )
     original_image = decode_image_data_url(request.slide_image, "original-slide.png")
     compiled = call_openrouter_prompt_compiler(
         diagnosis=diagnosis,
-        user_request=request.user_request,
-        feedback=request.feedback,
+        user_request="No additional original request was supplied for this revision.",
+        feedback=request.user_feedback,
     )
     if not compiled.can_apply:
         raise HTTPException(
@@ -812,7 +840,7 @@ def revise_hologram(request: ReviseHologramRequest) -> HologramResponse:
     return HologramResponse(
         session_id=request.session_id,
         slide_id=request.slide_id,
-        hologram_image=generate_hologram_image(
+        image_data_url=generate_hologram_image(
             prompt=compiled.image_prompt,
             images=[current_image, original_image],
         ),
