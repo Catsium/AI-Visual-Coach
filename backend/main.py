@@ -11,6 +11,13 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from teaching import (
+    TeachingResponse,
+    TeachingSampleRequest,
+    generate_teaching_plan,
+    get_sample_image_paths,
+)
+
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
@@ -367,6 +374,17 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/teach/sample", response_model=TeachingResponse)
+def teach_sample(request: TeachingSampleRequest) -> TeachingResponse:
+    original_image_path, approved_image_path = get_sample_image_paths(request.sample_id)
+    return generate_teaching_plan(
+        original_image_path,
+        approved_image_path,
+        model=OPENROUTER_MODEL,
+        openrouter_url=OPENROUTER_URL,
+    )
+
+
 @app.post("/session", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 def create_session() -> SessionResponse:
     session_id = uuid4()
@@ -475,4 +493,3 @@ def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
         ) from exc
 
     return diagnosis
-

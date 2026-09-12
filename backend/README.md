@@ -1,8 +1,8 @@
 # AI Visual Coach backend
 
 This FastAPI service currently creates application-owned coaching sessions and
-returns mock diagnosis data. It does not call OpenAI, generate holograms, or
-implement teaching plans.
+provides slide diagnosis and a temporary, sample-only PowerPoint teaching
+endpoint. It does not generate holograms or implement extension lesson state.
 
 ## Run locally
 
@@ -71,6 +71,57 @@ $env:CORS_ALLOWED_ORIGINS = "chrome-extension://your-extension-id,https://your-f
 
 An explicitly empty `CORS_ALLOWED_ORIGINS` value allows no browser origins.
 No `OPENAI_API_KEY` is needed or used for this milestone.
+
+## Temporary PowerPoint teaching samples
+
+`POST /teach/sample` compares one original slide image with its user-approved
+edited target and returns the full ordered lesson in one response. It does not
+manage the current step or lesson progress.
+
+Before testing, add the four real PNG screenshots documented in
+[`teaching_samples/README.md`](teaching_samples/README.md). Set the existing
+OpenRouter variables; `OPENROUTER_MODEL` must contain the Luna model identifier
+used by this project (for example, `openai/gpt-luna-latest`):
+
+```powershell
+$env:OPENROUTER_API_KEY = "your-openrouter-key"
+$env:OPENROUTER_MODEL = "openai/gpt-luna-latest"
+```
+
+Test `sample_a`:
+
+```powershell
+curl.exe -X POST http://localhost:8000/teach/sample `
+  -H "Content-Type: application/json" `
+  -d "{\"sample_id\":\"sample_a\"}"
+```
+
+Test `sample_b`:
+
+```powershell
+curl.exe -X POST http://localhost:8000/teach/sample `
+  -H "Content-Type: application/json" `
+  -d "{\"sample_id\":\"sample_b\"}"
+```
+
+The response shape is:
+
+```json
+{
+  "overview": "...",
+  "steps": [
+    {
+      "step": 1,
+      "title": "...",
+      "instruction": "...",
+      "explanation": "...",
+      "target_area": "...",
+      "action": "select_object",
+      "value": null
+    }
+  ]
+}
+```
 
 ## Render
 

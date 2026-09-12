@@ -74,13 +74,26 @@
         </div>
         <img id="slidePreview" alt="Captured preview of your current Google Slides slide" />
       </div>
-      <!-- Existing inactive control retained; the first Send button owns the handler. -->
-      <button class="secondary-button" type="button" disabled>Send Slide to AI</button>
+      <button id="sendSlideButton" class="secondary-button" type="button">Send Slide to AI</button>
     </section>
 
     <div id="responseBox" class="response-box" style="display: none;">
       <div id="responseText"></div>
     </div>
+
+    <section id="fixedVersionSection" class="response-box" style="display: none; margin-top: 18px;" aria-labelledby="fixedVersionHeading">
+      <div class="section-heading">
+        <h2 id="fixedVersionHeading">Fixed version</h2>
+        <span class="section-detail">Preview</span>
+      </div>
+      <img id="fixedVersionImage" alt="AI-generated fixed version of the current slide" style="display: block; width: 100%; border-radius: 10px;" />
+      <p style="margin: 12px 0; line-height: 1.5;"><strong>Luna summary:</strong> <span id="fixedVersionSummary"></span></p>
+      <label class="section-label" for="hologramFeedback">Refine this version</label>
+      <textarea id="hologramFeedback" placeholder="For example: make the title a little smaller" rows="3"></textarea>
+      <button id="updateEditButton" class="secondary-button" type="button">Update edit</button>
+    </section>
+
+    <button id="showFixedVersionButton" class="secondary-button" type="button" style="display: none; margin-top: 18px;">Show me a fixed version</button>
   </main>
   <script src="sidepanel.js"></script>
 </body>

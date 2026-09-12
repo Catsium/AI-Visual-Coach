@@ -2,13 +2,23 @@ const messageInput = document.getElementById("messageInput");
 const statusText = document.getElementById("statusText");
 const slidePreview = document.getElementById("slidePreview");
 const sendButton = document.getElementById("sendButton");
+const sendSlideButton = document.getElementById("sendSlideButton");
 const responseBox = document.getElementById("responseBox");
 const responseText = document.getElementById("responseText");
+const showFixedVersionButton = document.getElementById("showFixedVersionButton");
+const fixedVersionSection = document.getElementById("fixedVersionSection");
+const fixedVersionImage = document.getElementById("fixedVersionImage");
+const fixedVersionSummary = document.getElementById("fixedVersionSummary");
+const hologramFeedback = document.getElementById("hologramFeedback");
+const updateEditButton = document.getElementById("updateEditButton");
 
 const BACKEND_URL = "https://ai-visual-coach.onrender.com";
 
 let sessionId = null;
 let lastCapturedSlideDataUrl = null;
+let currentDiagnosis = null;
+let currentHologramDataUrl = null;
+let lastUserRequest = null;
 
 function setStatus(message) {
   console.log("[Visual Coach]", message);
@@ -16,6 +26,24 @@ function setStatus(message) {
   if (statusText) {
     statusText.textContent = message;
   }
+}
+
+async function getReadableBackendError(response, action) {
+  let detail = "The server could not complete this request.";
+
+  try {
+    const body = await response.json();
+
+    if (typeof body?.detail === "string" && body.detail.trim()) {
+      detail = body.detail;
+    } else if (body?.detail) {
+      detail = JSON.stringify(body.detail);
+    }
+  } catch (error) {
+    // Keep the user-facing fallback when the server did not return JSON.
+  }
+
+  return `${action}: ${detail}`;
 }
 
 function loadImage(src) {
@@ -144,7 +172,7 @@ async function diagnoseSlide(tab) {
           "change_text_alignment",
           "move_object",
           "resize_object",
-          "insert_image"
+          "insert_user_sourced_image"
         ]
       })
     }
@@ -415,18 +443,18 @@ async function sendSlideToBackend(userRequest) {
           "change_text_alignment",
           "move_object",
           "resize_object",
-          "insert_image"
+          "insert_user_sourced_image"
         ]
       })
     }
   );
 
   if (!response.ok) {
-    const errorText =
-      await response.text();
-
     throw new Error(
-      `Backend returned ${response.status}: ${errorText}`
+      await getReadableBackendError(
+        response,
+        "Diagnosis could not be completed"
+      )
     );
   }
 
@@ -519,6 +547,8 @@ messageInput.addEventListener(
   }
 );
 
+sendSlideButton?.addEventListener("click", () => sendButton?.click());
+
 sendButton.addEventListener(
   "click",
   async () => {
@@ -536,6 +566,7 @@ sendButton.addEventListener(
 
     try {
       sendButton.disabled = true;
+      sendSlideButton.disabled = true;
       messageInput.disabled = true;
 
       setStatus(
@@ -622,6 +653,30 @@ sendButton.addEventListener(
 
       renderDiagnosis(result);
 
+      currentDiagnosis = result;
+      currentHologramDataUrl = null;
+      lastUserRequest = userRequest;
+
+      if (fixedVersionImage) {
+        fixedVersionImage.removeAttribute("src");
+      }
+
+      if (fixedVersionSummary) {
+        fixedVersionSummary.textContent = "";
+      }
+
+      if (hologramFeedback) {
+        hologramFeedback.value = "";
+      }
+
+      if (fixedVersionSection) {
+        fixedVersionSection.style.display = "none";
+      }
+
+      if (showFixedVersionButton) {
+        showFixedVersionButton.style.display = "block";
+      }
+
       let overlayImage = null;
 
       if (result?.overlay_image) {
@@ -678,7 +733,168 @@ sendButton.addEventListener(
     } finally {
 
       sendButton.disabled = false;
+      sendSlideButton.disabled = false;
       messageInput.disabled = false;
+    }
+  }
+);
+
+async function generateFixedVersion() {
+  if (
+    !currentDiagnosis ||
+    !lastUserRequest ||
+    !lastCapturedSlideDataUrl
+  ) {
+    throw new Error(
+      "Diagnose the current slide before generating a fixed version."
+    );
+  }
+
+  const response = await fetch(
+    `${BACKEND_URL}/hologram`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+        session_id: currentDiagnosis.session_id,
+        slide_id: currentDiagnosis.slide_id,
+        user_request: lastUserRequest,
+        slide_image: lastCapturedSlideDataUrl
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await getReadableBackendError(
+        response,
+        "Fixed version could not be generated"
+      )
+    );
+  }
+
+  return await response.json();
+}
+
+async function reviseFixedVersion(userFeedback) {
+  if (
+    !currentDiagnosis ||
+    !lastCapturedSlideDataUrl ||
+    !currentHologramDataUrl ||
+    !userFeedback?.trim()
+  ) {
+    throw new Error(
+      "Describe the update and generate a fixed version first."
+    );
+  }
+
+  const response = await fetch(
+    `${BACKEND_URL}/revise-hologram`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+        session_id: currentDiagnosis.session_id,
+        slide_id: currentDiagnosis.slide_id,
+        user_feedback: userFeedback,
+        slide_image: lastCapturedSlideDataUrl,
+        current_hologram_image: currentHologramDataUrl
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await getReadableBackendError(
+        response,
+        "Update could not be applied"
+      )
+    );
+  }
+
+  return await response.json();
+}
+
+function renderFixedVersion(result) {
+  if (!result?.image_data_url) {
+    throw new Error("The server did not return a fixed slide image.");
+  }
+
+  currentHologramDataUrl = result.image_data_url;
+
+  if (fixedVersionImage) {
+    fixedVersionImage.src = currentHologramDataUrl;
+  }
+
+  if (fixedVersionSummary) {
+    fixedVersionSummary.textContent = result.summary || "Fixed version ready.";
+  }
+
+  if (fixedVersionSection) {
+    fixedVersionSection.style.display = "block";
+  }
+}
+
+showFixedVersionButton?.addEventListener(
+  "click",
+  async () => {
+    try {
+      showFixedVersionButton.disabled = true;
+      setStatus("Generating a fixed version...");
+
+      const result = await generateFixedVersion();
+
+      renderFixedVersion(result);
+      showFixedVersionButton.style.display = "none";
+      setStatus("Fixed version ready");
+    } catch (error) {
+      console.error("[Visual Coach]", error);
+      setStatus(`ERROR: ${error.message}`);
+    } finally {
+      showFixedVersionButton.disabled = false;
+    }
+  }
+);
+
+updateEditButton?.addEventListener(
+  "click",
+  async () => {
+    const userFeedback = hologramFeedback?.value.trim();
+
+    if (!userFeedback) {
+      setStatus("Describe the change you want first");
+      return;
+    }
+
+    if (!currentHologramDataUrl) {
+      setStatus("Generate a fixed version before updating it");
+      return;
+    }
+
+    try {
+      updateEditButton.disabled = true;
+      hologramFeedback.disabled = true;
+      setStatus("Updating the fixed version...");
+
+      const result = await reviseFixedVersion(userFeedback);
+
+      renderFixedVersion(result);
+      hologramFeedback.value = "";
+      setStatus("Fixed version updated");
+    } catch (error) {
+      console.error("[Visual Coach]", error);
+      setStatus(`ERROR: ${error.message}`);
+    } finally {
+      updateEditButton.disabled = false;
+      hologramFeedback.disabled = false;
     }
   }
 );
