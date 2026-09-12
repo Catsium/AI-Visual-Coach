@@ -1,6 +1,12 @@
-const captureButton = document.getElementById("captureButton");
+const messageInput = document.getElementById("messageInput");
 const statusText = document.getElementById("statusText");
 const slidePreview = document.getElementById("slidePreview");
+const sendButton = document.getElementById("sendButton");
+
+// Leave blank until your Render backend exists.
+const BACKEND_URL = "https://ai-visual-coach.onrender.com";
+
+let sessionId = null;
 
 let lastCapturedSlideDataUrl = null;
 
@@ -21,6 +27,136 @@ function loadImage(src) {
 
     img.src = src;
   });
+}
+
+async function getOrCreateSession() {
+  // Check if we already created one
+  const stored =
+    await chrome.storage.session.get(
+      "sessionId"
+    );
+
+  if (stored.sessionId) {
+    sessionId = stored.sessionId;
+
+    console.log(
+      "[Visual Coach] Existing session:",
+      sessionId
+    );
+
+    return sessionId;
+  }
+
+  console.log(
+    "[Visual Coach] Creating session..."
+  );
+
+  const response = await fetch(
+    `${BACKEND_URL}/session`,
+    {
+      method: "POST"
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to create session: ${response.status}`
+    );
+  }
+
+  const data = await response.json();
+
+  sessionId = data.session_id;
+
+  await chrome.storage.session.set({
+    sessionId
+  });
+
+  console.log(
+    "[Visual Coach] Session created:",
+    sessionId
+  );
+
+  return sessionId;
+}
+
+function getSlideId(url) {
+  try {
+    const parsed = new URL(url);
+
+    const match =
+      parsed.hash.match(
+        /slide=id\.([^&]+)/
+      );
+
+    if (match) {
+      return `id.${match[1]}`;
+    }
+  } catch (error) {
+    console.error(
+      "Could not get slide ID:",
+      error
+    );
+  }
+
+  return "unknown-slide";
+}
+
+async function diagnoseSlide(tab) {
+  const currentSessionId =
+    sessionId ||
+    await getOrCreateSession();
+
+  const slideId =
+    getSlideId(tab.url);
+
+  console.log(
+    "[Visual Coach] Diagnosing:",
+    {
+      session_id:
+        currentSessionId,
+
+      slide_id:
+        slideId
+    }
+  );
+
+  const response = await fetch(
+    `${BACKEND_URL}/diagnose`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type":
+          "application/json"
+      },
+
+      body: JSON.stringify({
+        session_id:
+          currentSessionId,
+
+        slide_id:
+          slideId,
+
+        supported_actions: [
+          "highlight",
+          "arrow",
+          "dim"
+        ]
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const text =
+      await response.text();
+
+    throw new Error(
+      `/diagnose failed ${response.status}: ${text}`
+    );
+  }
+
+  return await response.json();
 }
 
 async function getSlideBounds(tabId) {
@@ -205,16 +341,157 @@ async function cropScreenshot(
   );
 }
 
-captureButton.addEventListener(
+function dataUrlToBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(",");
+
+  const mimeMatch = header.match(/:(.*?);/);
+  const mimeType = mimeMatch ? mimeMatch[1] : "image/png";
+
+  const binary = atob(base64);
+
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return new Blob([bytes], {
+    type: mimeType
+  });
+}
+
+async function sendSlideToBackend(userRequest) {
+  if (!BACKEND_URL) {
+    throw new Error(
+      "Backend not configured."
+    );
+  }
+
+  const currentSessionId =
+    sessionId ||
+    await getOrCreateSession();
+
+  const [tab] =
+    await chrome.tabs.query({
+      active: true,
+      currentWindow: true
+    });
+
+  if (!tab) {
+    throw new Error(
+      "Could not find active tab"
+    );
+  }
+
+  const slideId =
+    getSlideId(tab.url);
+
+  console.log(
+    "[Visual Coach] User request:",
+    userRequest
+  );
+
+  console.log(
+    "[Visual Coach] Sending diagnosis:",
+    {
+      session_id: currentSessionId,
+      slide_id: slideId,
+      user_request: userRequest
+    }
+  );
+
+  const response = await fetch(
+    `${BACKEND_URL}/diagnose`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type":
+          "application/json"
+      },
+
+      body: JSON.stringify({
+        session_id: currentSessionId,
+        slide_id: slideId,
+
+        user_request: userRequest,
+
+        slide_image: lastCapturedSlideDataUrl,
+
+        supported_actions: [
+          "highlight",
+          "arrow",
+          "dim"
+        ]
+
+        /*
+         * FUTURE:
+         *
+         * When /diagnose accepts a prompt,
+         * uncomment this:
+         *
+         * user_request: userRequest
+         *
+         */
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errorText =
+      await response.text();
+
+    throw new Error(
+      `Backend returned ${response.status}: ${errorText}`
+    );
+  }
+
+  return await response.json();
+}
+
+messageInput.addEventListener(
+  "keydown",
+  (event) => {
+
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+
+      sendButton.click();
+    }
+  }
+);
+
+sendButton.addEventListener(
   "click",
   async () => {
-    console.log(
-      "[Visual Coach] Capture button clicked"
-    );
 
-    setStatus("Capture started...");
+    const userRequest =
+      messageInput.value.trim();
+
+    if (!userRequest) {
+      setStatus(
+        "Enter a message first"
+      );
+
+      return;
+    }
 
     try {
+      sendButton.disabled = true;
+      messageInput.disabled = true;
+
+      /*
+       * STEP 1:
+       * Find active Google Slides tab
+       */
+
+      setStatus(
+        "Finding slide..."
+      );
+
       const [tab] =
         await chrome.tabs.query({
           active: true,
@@ -227,11 +504,6 @@ captureButton.addEventListener(
         );
       }
 
-      console.log(
-        "Active tab:",
-        tab.url
-      );
-
       if (
         !tab.url?.startsWith(
           "https://docs.google.com/presentation/"
@@ -243,39 +515,28 @@ captureButton.addEventListener(
       }
 
       /*
-       * STEP 1
-       * Find the slide.
+       * STEP 2:
+       * Find slide bounds
        */
 
       const bounds =
-        await getSlideBounds(tab.id);
-
-      console.log(
-        "Slide bounds:",
-        bounds
-      );
+        await getSlideBounds(
+          tab.id
+        );
 
       if (!bounds) {
         throw new Error(
-          "Could not locate the slide"
+          "Could not locate slide"
         );
       }
 
-      setStatus(
-        `Slide found: ${Math.round(
-          bounds.width
-        )} × ${Math.round(
-          bounds.height
-        )}`
-      );
-
       /*
-       * STEP 2
-       * Screenshot active tab.
+       * STEP 3:
+       * Screenshot
        */
 
       setStatus(
-        "Taking screenshot..."
+        "Capturing slide..."
       );
 
       const screenshot =
@@ -286,18 +547,10 @@ captureButton.addEventListener(
           }
         );
 
-      console.log(
-        "Screenshot captured"
-      );
-
       /*
-       * STEP 3
-       * Crop.
+       * STEP 4:
+       * Crop
        */
-
-      setStatus(
-        "Cropping slide..."
-      );
 
       const cropped =
         await cropScreenshot(
@@ -305,13 +558,13 @@ captureButton.addEventListener(
           bounds
         );
 
-      /*
-       * STEP 4
-       * Display result.
-       */
-
       lastCapturedSlideDataUrl =
         cropped;
+
+      /*
+       * STEP 5:
+       * Preview
+       */
 
       if (slidePreview) {
         slidePreview.src =
@@ -321,25 +574,76 @@ captureButton.addEventListener(
           "block";
       }
 
+      /*
+       * STEP 6:
+       * Send diagnosis
+       */
+
       setStatus(
-        "✓ Slide captured"
+        "Analyzing..."
       );
 
+      const result =
+        await sendSlideToBackend(
+          userRequest
+        );
+
       console.log(
-        "Final slide image:",
-        cropped
+        "[Visual Coach] Backend response:",
+        result
       );
+
+      setStatus(
+        "✓ Response received"
+      );
+
+      /*
+       * Later:
+       * Display AI message here.
+       */
+
+      messageInput.value = "";
 
     } catch (error) {
 
       console.error(
-        "[Visual Coach] Capture failed:",
+        "[Visual Coach]",
         error
       );
 
       setStatus(
         `ERROR: ${error.message}`
       );
+
+    } finally {
+
+      sendButton.disabled = false;
+      messageInput.disabled = false;
     }
   }
 );
+
+async function initialize() {
+  try {
+    setStatus(
+      "Starting session..."
+    );
+
+    await getOrCreateSession();
+
+    setStatus("Ready");
+
+  } catch (error) {
+
+    console.error(
+      "[Visual Coach]",
+      error
+    );
+
+    setStatus(
+      `ERROR: ${error.message}`
+    );
+  }
+}
+
+initialize();
