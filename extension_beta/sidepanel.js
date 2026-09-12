@@ -10,6 +10,19 @@ const fixedVersionImage = document.getElementById("fixedVersionImage");
 const fixedVersionSummary = document.getElementById("fixedVersionSummary");
 const hologramFeedback = document.getElementById("hologramFeedback");
 const updateEditButton = document.getElementById("updateEditButton");
+const hologramActions = document.getElementById("hologramActions");
+const showTeachingButton = document.getElementById("showTeachingButton");
+const doneButton = document.getElementById("doneButton");
+const teachingSection = document.getElementById("teachingSection");
+const teachingOverview = document.getElementById("teachingOverview");
+const teachingStepNumber = document.getElementById("teachingStepNumber");
+const teachingStepTotal = document.getElementById("teachingStepTotal");
+const teachingStepTitle = document.getElementById("teachingStepTitle");
+const teachingStepInstruction = document.getElementById("teachingStepInstruction");
+const teachingStepExplanation = document.getElementById("teachingStepExplanation");
+const teachingStepTarget = document.getElementById("teachingStepTarget");
+const previousTeachingButton = document.getElementById("previousTeachingButton");
+const nextTeachingButton = document.getElementById("nextTeachingButton");
 
 const BACKEND_URL = "https://ai-visual-coach.onrender.com";
 
@@ -20,6 +33,8 @@ let currentHologramDataUrl = null;
 let lastUserRequest = null;
 let lastCapturedTabId = null;
 let lastCapturedSlideBounds = null;
+let teachingPlan = null;
+let teachingStepIndex = 0;
 
 function setStatus(message) {
   console.log("[Visual Coach]", message);
@@ -757,6 +772,17 @@ sendButton.addEventListener(
         fixedVersionSection.style.display = "none";
       }
 
+      teachingPlan = null;
+      teachingStepIndex = 0;
+
+      if (hologramActions) {
+        hologramActions.style.display = "none";
+      }
+
+      if (teachingSection) {
+        teachingSection.style.display = "none";
+      }
+
       if (showFixedVersionButton) {
         showFixedVersionButton.style.display = "block";
       }
@@ -920,6 +946,29 @@ async function renderFixedVersion(result) {
     fixedVersionSection.style.display = "block";
   }
 
+  teachingPlan = null;
+  teachingStepIndex = 0;
+
+  if (hologramActions) {
+    hologramActions.style.display = "flex";
+  }
+
+  if (showTeachingButton) {
+    showTeachingButton.style.display = "block";
+  }
+
+  if (teachingSection) {
+    teachingSection.style.display = "none";
+  }
+
+  if (hologramFeedback) {
+    hologramFeedback.disabled = false;
+  }
+
+  if (updateEditButton) {
+    updateEditButton.disabled = false;
+  }
+
   if (lastCapturedTabId && lastCapturedSlideBounds) {
     try {
       await showSlideOverlay(
@@ -931,6 +980,153 @@ async function renderFixedVersion(result) {
       console.warn("[Visual Coach] Could not update slide preview overlay", error);
     }
   }
+}
+
+async function requestTeachingPlan() {
+  if (
+    !currentDiagnosis ||
+    !lastCapturedSlideDataUrl ||
+    !currentHologramDataUrl
+  ) {
+    throw new Error("Generate a fixed version before starting the lesson.");
+  }
+
+  const response = await fetch(
+    `${BACKEND_URL}/teach`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        session_id: currentDiagnosis.session_id,
+        slide_id: currentDiagnosis.slide_id,
+        slide_image: lastCapturedSlideDataUrl,
+        current_hologram_image: currentHologramDataUrl
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await getReadableBackendError(response, "Teaching plan could not be created")
+    );
+  }
+
+  return await response.json();
+}
+
+function renderTeachingStep() {
+  const steps = teachingPlan?.steps || [];
+  const step = steps[teachingStepIndex];
+
+  if (!step) {
+    throw new Error("The teaching plan did not contain a usable step.");
+  }
+
+  if (teachingOverview) {
+    teachingOverview.textContent = teachingPlan.overview || "Follow these steps to recreate the fixed version.";
+  }
+
+  if (teachingStepNumber) {
+    teachingStepNumber.textContent = String(teachingStepIndex + 1);
+  }
+
+  if (teachingStepTotal) {
+    teachingStepTotal.textContent = String(steps.length);
+  }
+
+  if (teachingStepTitle) {
+    teachingStepTitle.textContent = step.title;
+  }
+
+  if (teachingStepInstruction) {
+    teachingStepInstruction.textContent = step.instruction;
+  }
+
+  if (teachingStepExplanation) {
+    teachingStepExplanation.textContent = step.explanation;
+  }
+
+  if (teachingStepTarget) {
+    const target = [
+      step.target_area,
+      step.action ? step.action.replaceAll("_", " ") : ""
+    ].filter(Boolean).join(" · ");
+    teachingStepTarget.textContent = target;
+    teachingStepTarget.style.display = target ? "block" : "none";
+  }
+
+  if (previousTeachingButton) {
+    previousTeachingButton.disabled = teachingStepIndex === 0;
+  }
+
+  if (nextTeachingButton) {
+    nextTeachingButton.textContent = teachingStepIndex === steps.length - 1 ? "Finish" : "Next";
+  }
+}
+
+async function endCoachingSession() {
+  if (lastCapturedTabId) {
+    try {
+      await removeSlideOverlay(lastCapturedTabId);
+    } catch (error) {
+      console.warn("[Visual Coach] Could not remove slide overlay", error);
+    }
+  }
+
+  try {
+    await chrome.storage.session.remove("sessionId");
+  } catch (error) {
+    console.warn("[Visual Coach] Could not clear stored session", error);
+  }
+
+  sessionId = null;
+  lastCapturedSlideDataUrl = null;
+  currentDiagnosis = null;
+  currentHologramDataUrl = null;
+  lastUserRequest = null;
+  lastCapturedTabId = null;
+  lastCapturedSlideBounds = null;
+  teachingPlan = null;
+  teachingStepIndex = 0;
+
+  document.getElementById("diagnosisOutput")?.remove();
+
+  if (slidePreview) {
+    slidePreview.removeAttribute("src");
+    slidePreview.style.display = "none";
+  }
+
+  if (fixedVersionImage) {
+    fixedVersionImage.removeAttribute("src");
+  }
+
+  if (fixedVersionSummary) {
+    fixedVersionSummary.textContent = "";
+  }
+
+  if (fixedVersionSection) {
+    fixedVersionSection.style.display = "none";
+  }
+
+  if (hologramActions) {
+    hologramActions.style.display = "none";
+  }
+
+  if (showFixedVersionButton) {
+    showFixedVersionButton.style.display = "none";
+  }
+
+  if (teachingSection) {
+    teachingSection.style.display = "none";
+  }
+
+  if (messageInput) {
+    messageInput.value = "";
+  }
+
+  setStatus("Session ended. Send a new request to start again.");
 }
 
 showFixedVersionButton?.addEventListener(
@@ -988,6 +1184,51 @@ updateEditButton?.addEventListener(
     }
   }
 );
+
+showTeachingButton?.addEventListener("click", async () => {
+  try {
+    showTeachingButton.disabled = true;
+    setStatus("Preparing your PowerPoint steps...");
+
+    teachingPlan = await requestTeachingPlan();
+    teachingStepIndex = 0;
+    renderTeachingStep();
+
+    if (teachingSection) {
+      teachingSection.style.display = "block";
+    }
+
+    showTeachingButton.style.display = "none";
+    if (hologramFeedback) hologramFeedback.disabled = true;
+    if (updateEditButton) updateEditButton.disabled = true;
+    setStatus("Teaching steps ready");
+  } catch (error) {
+    console.error("[Visual Coach]", error);
+    setStatus(`ERROR: ${error.message}`);
+  } finally {
+    showTeachingButton.disabled = false;
+  }
+});
+
+previousTeachingButton?.addEventListener("click", () => {
+  if (!teachingPlan) return;
+  teachingStepIndex = Math.max(0, teachingStepIndex - 1);
+  renderTeachingStep();
+});
+
+nextTeachingButton?.addEventListener("click", async () => {
+  if (!teachingPlan) return;
+
+  if (teachingStepIndex >= teachingPlan.steps.length - 1) {
+    await endCoachingSession();
+    return;
+  }
+
+  teachingStepIndex += 1;
+  renderTeachingStep();
+});
+
+doneButton?.addEventListener("click", endCoachingSession);
 
 hologramFeedback?.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {

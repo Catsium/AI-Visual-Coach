@@ -92,9 +92,31 @@
       <label class="section-label" for="hologramFeedback">Refine this version</label>
       <textarea id="hologramFeedback" class="feedback-input" placeholder="For example: make the title a little smaller" rows="3"></textarea>
       <button id="updateEditButton" class="secondary-button" type="button">Update edit</button>
+      <div id="hologramActions" class="hologram-actions" style="display: none;">
+        <button id="showTeachingButton" class="secondary-button" type="button">Show me how</button>
+        <button id="doneButton" class="secondary-button" type="button">Done</button>
+      </div>
     </section>
 
     <button id="showFixedVersionButton" class="secondary-button" type="button" style="display: none; margin-top: 18px;">Show me a fixed version</button>
+
+    <section id="teachingSection" class="response-box teaching-card" style="display: none;" aria-labelledby="teachingHeading">
+      <div class="section-heading">
+        <h2 id="teachingHeading">How to recreate it</h2>
+        <span class="section-detail">Step <span id="teachingStepNumber">1</span> of <span id="teachingStepTotal">1</span></span>
+      </div>
+      <p id="teachingOverview" class="teaching-overview"></p>
+      <div class="teaching-step">
+        <h3 id="teachingStepTitle"></h3>
+        <p id="teachingStepInstruction"></p>
+        <p id="teachingStepExplanation" class="teaching-explanation"></p>
+        <p id="teachingStepTarget" class="teaching-target"></p>
+      </div>
+      <div class="teaching-navigation">
+        <button id="previousTeachingButton" class="secondary-button" type="button">Previous</button>
+        <button id="nextTeachingButton" class="secondary-button" type="button">Next</button>
+      </div>
+    </section>
   </main>
   <script src="sidepanel.js"></script>
 </body>

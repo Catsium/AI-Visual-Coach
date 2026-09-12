@@ -24,34 +24,38 @@ SUPPORTED_POWERPOINT_ACTIONS = (
     "select_object",
     "edit_text",
     "change_font_size",
+    "change_font_family",
     "change_font_weight",
     "change_text_alignment",
-    "change_text_color",
+    "change_font_color",
+    "change_shape_color",
+    "change_spacing",
     "move_object",
     "resize_object",
     "crop_image",
     "delete_object",
-    "duplicate_object",
-    "change_fill_color",
-    "change_shape_color",
-    "change_object_order",
+    "insert_text",
+    "change_background_color",
+    "insert_user_sourced_image",
 )
 
 SupportedPowerPointAction = Literal[
     "select_object",
     "edit_text",
     "change_font_size",
+    "change_font_family",
     "change_font_weight",
     "change_text_alignment",
-    "change_text_color",
+    "change_font_color",
+    "change_shape_color",
+    "change_spacing",
     "move_object",
     "resize_object",
     "crop_image",
     "delete_object",
-    "duplicate_object",
-    "change_fill_color",
-    "change_shape_color",
-    "change_object_order",
+    "insert_text",
+    "change_background_color",
+    "insert_user_sourced_image",
 ]
 
 
@@ -174,7 +178,23 @@ def generate_teaching_plan(
     model: str | None = None,
     openrouter_url: str = OPENROUTER_URL,
 ) -> TeachingResponse:
-    """Send both slide images in one OpenRouter request and validate the lesson."""
+    """Send both local slide images in one OpenRouter request."""
+    return generate_teaching_plan_from_data_urls(
+        image_file_as_data_url(original_image_path),
+        image_file_as_data_url(approved_image_path),
+        model=model,
+        openrouter_url=openrouter_url,
+    )
+
+
+def generate_teaching_plan_from_data_urls(
+    original_image_data_url: str,
+    approved_image_data_url: str,
+    *,
+    model: str | None = None,
+    openrouter_url: str = OPENROUTER_URL,
+) -> TeachingResponse:
+    """Send captured original and hologram images in one OpenRouter request."""
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -192,7 +212,7 @@ def generate_teaching_plan(
                     {"type": "text", "text": "IMAGE 1 = ORIGINAL SLIDE"},
                     {
                         "type": "image_url",
-                        "image_url": {"url": image_file_as_data_url(original_image_path)},
+                        "image_url": {"url": original_image_data_url},
                     },
                     {
                         "type": "text",
@@ -200,7 +220,7 @@ def generate_teaching_plan(
                     },
                     {
                         "type": "image_url",
-                        "image_url": {"url": image_file_as_data_url(approved_image_path)},
+                        "image_url": {"url": approved_image_data_url},
                     },
                 ],
             }

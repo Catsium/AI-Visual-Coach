@@ -113,6 +113,26 @@ svg { display: block; flex: 0 0 auto; }
 .feedback-input:focus { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--focus); }
 .feedback-input:disabled { color: var(--muted); cursor: wait; }
 
+.hologram-actions,
+.teaching-navigation {
+  display: flex;
+  gap: var(--space-2);
+}
+.hologram-actions .secondary-button,
+.teaching-navigation .secondary-button {
+  flex: 1;
+}
+.teaching-card h3 { margin: 0 0 var(--space-3); font-size: 16px; font-weight: 600; }
+.teaching-overview { margin: 0 0 var(--space-5); color: var(--muted); line-height: 1.6; }
+.teaching-step { padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.teaching-step p { margin: 0 0 var(--space-3); line-height: 1.6; }
+.teaching-step p:last-child { margin-bottom: 0; }
+.teaching-explanation,
+.teaching-target { color: var(--muted); font-size: 12px; }
+.teaching-target::before { content: "PowerPoint target: "; color: var(--text); font-weight: 600; }
+.teaching-navigation { margin-top: var(--space-3); }
+.teaching-navigation .secondary-button:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .composer-footer {
   display: flex;
   align-items: center;

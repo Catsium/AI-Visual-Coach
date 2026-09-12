@@ -18,6 +18,7 @@ from teaching import (
     TeachingResponse,
     TeachingSampleRequest,
     generate_teaching_plan,
+    generate_teaching_plan_from_data_urls,
     get_sample_image_paths,
 )
 
@@ -119,6 +120,15 @@ class HologramResponse(BaseModel):
     slide_id: str
     image_data_url: str
     summary: str
+
+
+class TeachingHologramRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    slide_id: str = Field(min_length=1)
+    slide_image: str = Field(min_length=1)
+    current_hologram_image: str = Field(min_length=1)
 
 
 class PromptCompilerResponse(BaseModel):
@@ -723,6 +733,19 @@ def teach_sample(request: TeachingSampleRequest) -> TeachingResponse:
     return generate_teaching_plan(
         original_image_path,
         approved_image_path,
+        model=OPENROUTER_MODEL,
+        openrouter_url=OPENROUTER_URL,
+    )
+
+
+@app.post("/teach", response_model=TeachingResponse)
+def teach_hologram(request: TeachingHologramRequest) -> TeachingResponse:
+    load_saved_diagnosis(request.session_id, request.slide_id)
+    decode_image_data_url(request.slide_image, "original-slide.png")
+    decode_image_data_url(request.current_hologram_image, "current-hologram.png")
+    return generate_teaching_plan_from_data_urls(
+        request.slide_image,
+        request.current_hologram_image,
         model=OPENROUTER_MODEL,
         openrouter_url=OPENROUTER_URL,
     )
