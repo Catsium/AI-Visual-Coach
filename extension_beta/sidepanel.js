@@ -915,6 +915,13 @@ updateEditButton?.addEventListener(
   }
 );
 
+hologramFeedback?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    updateEditButton?.click();
+  }
+});
+
 async function initialize() {
   try {
     setStatus(
