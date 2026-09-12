@@ -7,9 +7,26 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 import requests
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
+
+
+def get_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DATABASE_URL is not configured",
+        )
+    return database_url
+
+
+def get_db():
+    return psycopg.connect(get_database_url(), row_factory=dict_row)
 
 
 def get_allowed_origins() -> list[str]:
@@ -238,11 +255,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# This milestone intentionally keeps coaching sessions in one application process.
-# Each session represents one presentation-level Visual Coach interaction.
-sessions: dict[UUID, dict] = {}
-
-
 @app.get("/")
 def root():
     return {"status": "Visual Coach backend running"}
@@ -256,34 +268,67 @@ def health():
 @app.post("/session", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 def create_session() -> SessionResponse:
     session_id = uuid4()
-    sessions[session_id] = {
-        "created_at": datetime.now(timezone.utc),
-        "slides": {},
-    }
+
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO coach_sessions (session_id)
+                    VALUES (%s)
+                    """,
+                    (session_id,),
+                )
+    except psycopg.Error as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database error while creating session: {exc}",
+        ) from exc
+
     return SessionResponse(session_id=session_id)
 
 
 @app.post("/diagnose", response_model=DiagnoseResponse)
 def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
-    if request.session_id not in sessions:
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT session_id
+                    FROM coach_sessions
+                    WHERE session_id = %s
+                    """,
+                    (request.session_id,),
+                )
+
+                if cur.fetchone() is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Unknown session_id",
+                    )
+
+                cur.execute(
+                    """
+                    SELECT slide_id, diagnosis
+                    FROM coach_slides
+                    WHERE session_id = %s
+                      AND slide_id <> %s
+                      AND diagnosis IS NOT NULL
+                    ORDER BY updated_at DESC
+                    LIMIT 5
+                    """,
+                    (request.session_id, request.slide_id),
+                )
+                previous_slide_context = list(cur.fetchall())
+
+    except HTTPException:
+        raise
+    except psycopg.Error as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Unknown session_id",
-        )
-
-    session = sessions[request.session_id]
-
-    previous_slide_context = []
-    for existing_slide_id, slide_state in session["slides"].items():
-        if existing_slide_id == request.slide_id:
-            continue
-        if "diagnosis" in slide_state:
-            previous_slide_context.append(
-                {
-                    "slide_id": existing_slide_id,
-                    "diagnosis": slide_state["diagnosis"],
-                }
-            )
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database error while loading session context: {exc}",
+        ) from exc
 
     problems, additions = call_openrouter_diagnosis(
         request,
@@ -297,10 +342,34 @@ def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
         additions=additions,
     )
 
-    session["slides"].setdefault(request.slide_id, {})
-    session["slides"][request.slide_id]["diagnosis"] = diagnosis.model_dump(
-        mode="json"
-    )
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO coach_slides (
+                        session_id,
+                        slide_id,
+                        diagnosis,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (session_id, slide_id)
+                    DO UPDATE SET
+                        diagnosis = EXCLUDED.diagnosis,
+                        updated_at = NOW()
+                    """,
+                    (
+                        request.session_id,
+                        request.slide_id,
+                        Jsonb(diagnosis.model_dump(mode="json")),
+                    ),
+                )
+    except psycopg.Error as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database error while saving diagnosis: {exc}",
+        ) from exc
 
     return diagnosis
 

@@ -6,3 +6,4 @@ openai
 python-dotenv
 httpx
 requests
+psycopg[binary]
