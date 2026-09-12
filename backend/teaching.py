@@ -202,6 +202,13 @@ def generate_teaching_plan_from_data_urls(
             detail="OPENROUTER_API_KEY is not configured",
         )
 
+    teaching_schema = TeachingResponse.model_json_schema()
+    step_schema = teaching_schema.get("$defs", {}).get("TeachingStep")
+    if step_schema and "properties" in step_schema:
+        # OpenAI-compatible structured outputs require every property to be
+        # listed in required, including nullable optional values.
+        step_schema["required"] = list(step_schema["properties"])
+
     payload = {
         "model": model or OPENROUTER_MODEL,
         "messages": [
@@ -230,7 +237,7 @@ def generate_teaching_plan_from_data_urls(
             "json_schema": {
                 "name": "powerpoint_teaching_plan",
                 "strict": True,
-                "schema": TeachingResponse.model_json_schema(),
+                "schema": teaching_schema,
             },
         },
         "provider": {"require_parameters": True},

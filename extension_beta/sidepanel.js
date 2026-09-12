@@ -12,6 +12,7 @@ const hologramFeedback = document.getElementById("hologramFeedback");
 const updateEditButton = document.getElementById("updateEditButton");
 const hologramActions = document.getElementById("hologramActions");
 const showTeachingButton = document.getElementById("showTeachingButton");
+const toggleOverlayButton = document.getElementById("toggleOverlayButton");
 const doneButton = document.getElementById("doneButton");
 const teachingSection = document.getElementById("teachingSection");
 const teachingOverview = document.getElementById("teachingOverview");
@@ -35,6 +36,7 @@ let lastCapturedTabId = null;
 let lastCapturedSlideBounds = null;
 let teachingPlan = null;
 let teachingStepIndex = 0;
+let overlayVisible = false;
 
 function setStatus(message) {
   console.log("[Visual Coach]", message);
@@ -729,6 +731,10 @@ sendButton.addEventListener(
       );
 
       await removeSlideOverlay(tab.id);
+      overlayVisible = false;
+      if (toggleOverlayButton) {
+        toggleOverlayButton.textContent = "Show overlay";
+      }
 
       const screenshot =
         await chrome.tabs.captureVisibleTab(
@@ -970,6 +976,10 @@ async function renderFixedVersion(result) {
 
   teachingPlan = null;
   teachingStepIndex = 0;
+  overlayVisible = false;
+  if (toggleOverlayButton) {
+    toggleOverlayButton.textContent = "Show overlay";
+  }
 
   if (hologramActions) {
     hologramActions.style.display = "flex";
@@ -998,11 +1008,47 @@ async function renderFixedVersion(result) {
         lastCapturedSlideBounds,
         currentHologramDataUrl
       );
+      overlayVisible = true;
+      if (toggleOverlayButton) {
+        toggleOverlayButton.textContent = "Hide overlay";
+      }
     } catch (error) {
       console.warn("[Visual Coach] Could not update slide preview overlay", error);
     }
   }
 }
+
+toggleOverlayButton?.addEventListener("click", async () => {
+  if (!lastCapturedTabId || !lastCapturedSlideBounds || !currentHologramDataUrl) {
+    setStatus("Generate a fixed version before changing the overlay");
+    return;
+  }
+
+  try {
+    toggleOverlayButton.disabled = true;
+
+    if (overlayVisible) {
+      await removeSlideOverlay(lastCapturedTabId);
+      overlayVisible = false;
+      toggleOverlayButton.textContent = "Show overlay";
+      setStatus("Overlay hidden");
+    } else {
+      await showSlideOverlay(
+        lastCapturedTabId,
+        lastCapturedSlideBounds,
+        currentHologramDataUrl
+      );
+      overlayVisible = true;
+      toggleOverlayButton.textContent = "Hide overlay";
+      setStatus("Overlay shown");
+    }
+  } catch (error) {
+    console.error("[Visual Coach] Could not toggle slide overlay", error);
+    setStatus("ERROR: Could not update the overlay");
+  } finally {
+    toggleOverlayButton.disabled = false;
+  }
+});
 
 function setButtonLoading(button, loading, loadingLabel) {
   if (!button) return;
@@ -1154,6 +1200,10 @@ async function endCoachingSession() {
   lastCapturedSlideBounds = null;
   teachingPlan = null;
   teachingStepIndex = 0;
+  overlayVisible = false;
+  if (toggleOverlayButton) {
+    toggleOverlayButton.textContent = "Show overlay";
+  }
 
   document.getElementById("diagnosisOutput")?.remove();
 
