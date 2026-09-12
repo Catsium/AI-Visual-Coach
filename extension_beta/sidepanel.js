@@ -17,6 +17,7 @@ const doneButton = document.getElementById("doneButton");
 const teachingSection = document.getElementById("teachingSection");
 const teachingPinnedImage = document.getElementById("teachingPinnedImage");
 const teachingOverview = document.getElementById("teachingOverview");
+const teachingStepBadge = document.getElementById("teachingStepBadge");
 const teachingStepNumber = document.getElementById("teachingStepNumber");
 const teachingStepTotal = document.getElementById("teachingStepTotal");
 const teachingStepTitle = document.getElementById("teachingStepTitle");
@@ -1149,6 +1150,10 @@ function renderTeachingStep() {
 
   if (teachingStepNumber) {
     teachingStepNumber.textContent = String(teachingStepIndex + 1);
+  }
+
+  if (teachingStepBadge) {
+    teachingStepBadge.textContent = `Step ${teachingStepIndex + 1}`;
   }
 
   if (teachingStepTotal) {

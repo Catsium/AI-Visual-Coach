@@ -142,13 +142,30 @@ svg { display: block; flex: 0 0 auto; }
   border-radius: 10px;
   background: var(--surface);
 }
-.teaching-card h3 { margin: 0 0 var(--space-3); font-size: 16px; font-weight: 600; }
-.teaching-overview { margin: 0 0 var(--space-5); color: var(--muted); line-height: 1.6; }
-.teaching-step { padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
-.teaching-step p { margin: 0 0 var(--space-3); line-height: 1.6; }
-.teaching-step p:last-child { margin-bottom: 0; }
+.teaching-overview { margin: 0 0 var(--space-5); color: var(--muted); font-size: 14px; line-height: 1.55; }
+.teaching-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.teaching-step-badge {
+  align-self: flex-start;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.teaching-card h3 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
+.teaching-step p { margin: 0; font-size: 14px; line-height: 1.55; }
 .teaching-explanation,
-.teaching-target { color: var(--muted); font-size: 12px; }
+.teaching-target { color: var(--muted); font-size: 13px !important; }
 .teaching-target::before { content: "PowerPoint target: "; color: var(--text); font-weight: 600; }
 .teaching-navigation { margin-top: var(--space-3); }
 .teaching-navigation .secondary-button:disabled { opacity: 0.45; cursor: not-allowed; }
