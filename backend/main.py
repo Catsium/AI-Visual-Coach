@@ -1,10 +1,15 @@
+import json
 import os
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+import requests
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 
 def get_allowed_origins() -> list[str]:
@@ -40,6 +45,188 @@ class DiagnoseResponse(BaseModel):
     slide_id: str
     problems: list[DiagnosisChange]
     additions: list[DiagnosisChange]
+
+
+def normalize_image_data(slide_image: str) -> str:
+    """Accept a browser data URL, public URL, or raw base64 PNG string."""
+    if slide_image.startswith(("data:image/", "http://", "https://")):
+        return slide_image
+    return f"data:image/png;base64,{slide_image}"
+
+
+def diagnosis_json_schema() -> dict:
+    change_schema = {
+        "type": "object",
+        "properties": {
+            "issue": {"type": "string"},
+            "evidence": {"type": "string"},
+            "fix": {"type": "string"},
+            "target_area": {"type": ["string", "null"]},
+            "supported_action": {"type": ["string", "null"]},
+        },
+        "required": [
+            "issue",
+            "evidence",
+            "fix",
+            "target_area",
+            "supported_action",
+        ],
+        "additionalProperties": False,
+    }
+
+    return {
+        "type": "object",
+        "properties": {
+            "problems": {
+                "type": "array",
+                "items": change_schema,
+            },
+            "additions": {
+                "type": "array",
+                "items": change_schema,
+            },
+        },
+        "required": ["problems", "additions"],
+        "additionalProperties": False,
+    }
+
+
+def sanitize_supported_actions(
+    changes: list["DiagnosisChange"], allowed_actions: set[str]
+) -> list["DiagnosisChange"]:
+    """Never allow model output to invent an unsupported PowerPoint action."""
+    for change in changes:
+        if change.supported_action not in allowed_actions:
+            change.supported_action = None
+    return changes
+
+
+def call_openrouter_diagnosis(
+    request: "DiagnoseRequest",
+    previous_slide_context: list[dict],
+) -> tuple[list["DiagnosisChange"], list["DiagnosisChange"]]:
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OPENROUTER_API_KEY is not configured",
+        )
+
+    supported_actions_text = (
+        ", ".join(request.supported_actions)
+        if request.supported_actions
+        else "NONE"
+    )
+
+    previous_context_text = (
+        json.dumps(previous_slide_context, ensure_ascii=False)
+        if previous_slide_context
+        else "No previous slides have been diagnosed in this presentation."
+    )
+
+    prompt = f"""
+You are Visual Coach, an assistant reviewing one PowerPoint slide.
+
+User goal:
+{request.user_request}
+
+Supported PowerPoint actions for this prototype:
+{supported_actions_text}
+
+Previous slide diagnosis context from the same presentation:
+{previous_context_text}
+
+Analyze only what is visibly supported by the supplied slide image.
+
+Rules:
+- Recommend only changes that can be taught using the supplied supported actions.
+- If no supported action can implement a proposed change, set supported_action to null.
+- Do not invent PowerPoint capabilities.
+- Keep evidence concrete and tied to what is visible on the slide.
+- Keep fixes concise and actionable.
+- target_area should be a short visual description such as "top-left title" or null.
+- Use previous-slide context only when it genuinely helps consistency across the presentation.
+- Return problems for things that should be changed.
+- Return additions only when adding something is genuinely useful.
+"""
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": normalize_image_data(request.slide_image)},
+                    },
+                ],
+            }
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "visual_coach_diagnosis",
+                "strict": True,
+                "schema": diagnosis_json_schema(),
+            },
+        },
+        "provider": {
+            "require_parameters": True,
+        },
+        "plugins": [{"id": "response-healing"}],
+    }
+
+    try:
+        response = requests.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=60,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not reach OpenRouter: {exc}",
+        ) from exc
+
+    if not response.ok:
+        try:
+            error_detail = response.json()
+        except ValueError:
+            error_detail = response.text
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"openrouter_status": response.status_code, "error": error_detail},
+        )
+
+    try:
+        content = response.json()["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+
+        problems = [
+            DiagnosisChange.model_validate(item)
+            for item in parsed.get("problems", [])
+        ]
+        additions = [
+            DiagnosisChange.model_validate(item)
+            for item in parsed.get("additions", [])
+        ]
+    except (KeyError, IndexError, TypeError, ValueError, ValidationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OpenRouter returned an invalid diagnosis response",
+        ) from exc
+
+    allowed_actions = set(request.supported_actions)
+    return (
+        sanitize_supported_actions(problems, allowed_actions),
+        sanitize_supported_actions(additions, allowed_actions),
+    )
 
 
 app = FastAPI()
@@ -79,30 +266,41 @@ def create_session() -> SessionResponse:
 @app.post("/diagnose", response_model=DiagnoseResponse)
 def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
     if request.session_id not in sessions:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown session_id")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unknown session_id",
+        )
 
     session = sessions[request.session_id]
-    if request.slide_id not in session["slides"]:
-        session["slides"][request.slide_id] = {}
 
-    supported_action = request.supported_actions[0] if request.supported_actions else None
-    fix = (
-        "Use the extension's supported action to improve clarity."
-        if supported_action is not None
-        else "Review the title and primary content to make their hierarchy clearer."
+    previous_slide_context = []
+    for existing_slide_id, slide_state in session["slides"].items():
+        if existing_slide_id == request.slide_id:
+            continue
+        if "diagnosis" in slide_state:
+            previous_slide_context.append(
+                {
+                    "slide_id": existing_slide_id,
+                    "diagnosis": slide_state["diagnosis"],
+                }
+            )
+
+    problems, additions = call_openrouter_diagnosis(
+        request,
+        previous_slide_context=previous_slide_context,
     )
 
-    return DiagnoseResponse(
+    diagnosis = DiagnoseResponse(
         session_id=request.session_id,
         slide_id=request.slide_id,
-        problems=[
-            DiagnosisChange(
-                issue="Visual hierarchy needs review",
-                evidence="Mock diagnosis: image analysis is not enabled in this milestone.",
-                fix=fix,
-                target_area="top-center",
-                supported_action=supported_action,
-            )
-        ],
-        additions=[],
+        problems=problems,
+        additions=additions,
     )
+
+    session["slides"].setdefault(request.slide_id, {})
+    session["slides"][request.slide_id]["diagnosis"] = diagnosis.model_dump(
+        mode="json"
+    )
+
+    return diagnosis
+

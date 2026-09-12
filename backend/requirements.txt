@@ -5,3 +5,4 @@ uvicorn[standard]
 openai
 python-dotenv
 httpx
+requests
