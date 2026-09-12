@@ -143,7 +143,8 @@ async function diagnoseSlide(tab) {
           "change_font_color",
           "change_text_alignment",
           "move_object",
-          "resize_object"
+          "resize_object",
+          "insert_image"
         ]
       })
     }
@@ -413,7 +414,8 @@ async function sendSlideToBackend(userRequest) {
           "change_font_color",
           "change_text_alignment",
           "move_object",
-          "resize_object"
+          "resize_object",
+          "insert_image"
         ]
       })
     }
