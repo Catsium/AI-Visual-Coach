@@ -1,0 +1,35 @@
+im going to start with this implementation, heres the context
+
+Chrome Extension
+├─ Side panel
+├─ Screenshot / slide crop
+├─ Slide detection
+├─ Hologram overlay + opacity
+├─ PowerPoint highlights
+└─ Teaching step state
+```
+    ↓
+```
+
+Backend
+├─ OpenAI API key
+├─ Agents API session ID
+├─ Original screenshot
+├─ Current hologram
+└─ App ↔ agent translation
+```
+    ↓
+```
+
+OpenAI Agents API
+├─ Session context
+├─ Diagnosis
+├─ Supported-action constraints
+└─ Teaching plan
+```
+    +
+```
+
+GPT Image 2.5 Flare
+├─ Hologram generation
+└─ Hologram revision
