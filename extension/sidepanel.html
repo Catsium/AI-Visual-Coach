@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Visual Coach</title>
-
   <style>
     * {
       box-sizing: border-box;
@@ -16,127 +15,75 @@
       font-family: Arial, sans-serif;
       background: #111318;
       color: #ffffff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 24px;
+      padding: 20px;
     }
 
     .container {
       width: 100%;
       max-width: 360px;
-      text-align: center;
-    }
-
-    .logo {
-      width: 58px;
-      height: 58px;
-      margin: 0 auto 18px;
-      border-radius: 16px;
-      background: #ffffff;
-      color: #111318;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 28px;
-      font-weight: bold;
+      margin: 0 auto;
     }
 
     h1 {
-      margin: 0;
-      font-size: 24px;
+      margin-top: 0;
+      font-size: 22px;
     }
 
-    .description {
+    p {
       color: #9ca3af;
       font-size: 14px;
-      line-height: 1.5;
-      margin: 10px 0 28px;
+      line-height: 1.4;
     }
 
-    .status {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 16px;
-      font-size: 14px;
-      color: #9ca3af;
-    }
-
-    .status-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: #6b7280;
-    }
-
-    .status-dot.active {
-      background: #22c55e;
-      box-shadow: 0 0 10px rgba(34, 197, 94, 0.7);
-    }
-
-    #activateButton {
+    button {
       width: 100%;
       border: none;
-      padding: 15px 20px;
+      padding: 14px 18px;
       border-radius: 12px;
       background: #ffffff;
       color: #111318;
       font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      transition: 0.2s;
+      margin-top: 10px;
     }
 
-    #activateButton:hover {
-      transform: translateY(-1px);
-      background: #e5e7eb;
+    button:hover {
+      opacity: 0.95;
     }
 
-    #activateButton.active {
-      background: #ef4444;
-      color: white;
+    .status {
+      margin-top: 14px;
+      font-size: 14px;
+      color: #9ca3af;
     }
 
-    .hint {
+    .preview-wrapper {
       margin-top: 18px;
-      color: #6b7280;
-      font-size: 12px;
+    }
+
+    .preview-wrapper img {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #2b2f36;
+      display: none;
     }
   </style>
 </head>
-
 <body>
-
   <main class="container">
-
-    <div class="logo">
-      ✦
-    </div>
-
     <h1>AI Visual Coach</h1>
+    <p>Capture only the current Google Slides slide for later API analysis.</p>
 
-    <p class="description">
-      Get visual, step-by-step guidance directly on what you're viewing.
-    </p>
+    <button id="captureButton">Capture Current Slide</button>
 
-    <div class="status">
-      <span id="statusDot" class="status-dot"></span>
-      <span id="statusText">Coach inactive</span>
+    <div id="statusText" class="status">Ready</div>
+
+    <div class="preview-wrapper">
+      <img id="slidePreview" alt="Slide preview" />
     </div>
-
-    <button id="activateButton">
-      Activate Visual Coach
-    </button>
-
-    <p class="hint">
-      Visual guidance will appear directly on the current page.
-    </p>
-
   </main>
 
   <script src="sidepanel.js"></script>
-
 </body>
 </html>
