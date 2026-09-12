@@ -1004,6 +1004,26 @@ async function renderFixedVersion(result) {
   }
 }
 
+function setButtonLoading(button, loading, loadingLabel) {
+  if (!button) return;
+
+  if (loading) {
+    if (!button.dataset.defaultLabel) {
+      button.dataset.defaultLabel = button.textContent.trim();
+    }
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.innerHTML = `${loadingLabel} <span class="loading-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>`;
+    return;
+  }
+
+  button.disabled = false;
+  button.removeAttribute("aria-busy");
+  if (button.dataset.defaultLabel) {
+    button.textContent = button.dataset.defaultLabel;
+  }
+}
+
 async function requestTeachingPlan() {
   if (
     !currentDiagnosis ||
@@ -1049,6 +1069,9 @@ async function requestTeachingPlan() {
   }
 
   if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error("Teaching is not available on the backend yet. Redeploy the backend and try again.");
+    }
     throw new Error(
       await getReadableBackendError(response, "Teaching plan could not be created")
     );
@@ -1174,7 +1197,7 @@ showFixedVersionButton?.addEventListener(
   "click",
   async () => {
     try {
-      showFixedVersionButton.disabled = true;
+      setButtonLoading(showFixedVersionButton, true, "Generating");
       setStatus("Generating a fixed version...");
 
       const result = await generateFixedVersion();
@@ -1186,7 +1209,7 @@ showFixedVersionButton?.addEventListener(
       console.error("[Visual Coach]", error);
       setStatus(`ERROR: ${error.message}`);
     } finally {
-      showFixedVersionButton.disabled = false;
+      setButtonLoading(showFixedVersionButton, false);
     }
   }
 );
@@ -1207,7 +1230,7 @@ updateEditButton?.addEventListener(
     }
 
     try {
-      updateEditButton.disabled = true;
+      setButtonLoading(updateEditButton, true, "Updating");
       hologramFeedback.disabled = true;
       setStatus("Updating the fixed version...");
 
@@ -1220,7 +1243,7 @@ updateEditButton?.addEventListener(
       console.error("[Visual Coach]", error);
       setStatus(`ERROR: ${error.message}`);
     } finally {
-      updateEditButton.disabled = false;
+      setButtonLoading(updateEditButton, false);
       hologramFeedback.disabled = false;
     }
   }
@@ -1228,7 +1251,7 @@ updateEditButton?.addEventListener(
 
 showTeachingButton?.addEventListener("click", async () => {
   try {
-    showTeachingButton.disabled = true;
+    setButtonLoading(showTeachingButton, true, "Preparing");
     setStatus("Preparing your PowerPoint steps...");
 
     teachingPlan = await requestTeachingPlan();
@@ -1245,9 +1268,12 @@ showTeachingButton?.addEventListener("click", async () => {
     setStatus("Teaching steps ready");
   } catch (error) {
     console.error("[Visual Coach]", error);
+    if (showTeachingButton) {
+      showTeachingButton.style.display = "block";
+    }
     setStatus(`ERROR: ${error.message}`);
   } finally {
-    showTeachingButton.disabled = false;
+    setButtonLoading(showTeachingButton, false);
   }
 });
 
