@@ -2,7 +2,6 @@ const messageInput = document.getElementById("messageInput");
 const statusText = document.getElementById("statusText");
 const slidePreview = document.getElementById("slidePreview");
 const sendButton = document.getElementById("sendButton");
-const sendSlideButton = document.getElementById("sendSlideButton");
 const responseBox = document.getElementById("responseBox");
 const responseText = document.getElementById("responseText");
 const showFixedVersionButton = document.getElementById("showFixedVersionButton");
@@ -631,7 +630,6 @@ messageInput.addEventListener(
   }
 );
 
-sendSlideButton?.addEventListener("click", () => sendButton?.click());
 
 sendButton.addEventListener(
   "click",
@@ -650,7 +648,6 @@ sendButton.addEventListener(
 
     try {
       sendButton.disabled = true;
-      sendSlideButton.disabled = true;
       messageInput.disabled = true;
 
       setStatus(
@@ -815,7 +812,6 @@ sendButton.addEventListener(
     } finally {
 
       sendButton.disabled = false;
-      sendSlideButton.disabled = false;
       messageInput.disabled = false;
     }
   }
