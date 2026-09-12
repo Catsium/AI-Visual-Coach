@@ -95,6 +95,24 @@ svg { display: block; flex: 0 0 auto; }
 #messageInput:focus { outline: none; }
 #messageInput:disabled { color: var(--muted); cursor: wait; }
 
+.feedback-input {
+  display: block;
+  width: 100%;
+  min-height: 96px;
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.6;
+}
+.feedback-input::placeholder { color: var(--muted); opacity: 1; }
+.feedback-input:focus { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--focus); }
+.feedback-input:disabled { color: var(--muted); cursor: wait; }
+
 .composer-footer {
   display: flex;
   align-items: center;

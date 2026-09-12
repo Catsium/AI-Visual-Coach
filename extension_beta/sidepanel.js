@@ -19,6 +19,8 @@ let lastCapturedSlideDataUrl = null;
 let currentDiagnosis = null;
 let currentHologramDataUrl = null;
 let lastUserRequest = null;
+let lastCapturedTabId = null;
+let lastCapturedSlideBounds = null;
 
 function setStatus(message) {
   console.log("[Visual Coach]", message);
@@ -661,6 +663,9 @@ sendButton.addEventListener(
         fixedVersionImage.removeAttribute("src");
       }
 
+      lastCapturedTabId = tab.id;
+      lastCapturedSlideBounds = bounds;
+
       if (fixedVersionSummary) {
         fixedVersionSummary.textContent = "";
       }
@@ -823,7 +828,7 @@ async function reviseFixedVersion(userFeedback) {
   return await response.json();
 }
 
-function renderFixedVersion(result) {
+async function renderFixedVersion(result) {
   if (!result?.image_data_url) {
     throw new Error("The server did not return a fixed slide image.");
   }
@@ -841,6 +846,18 @@ function renderFixedVersion(result) {
   if (fixedVersionSection) {
     fixedVersionSection.style.display = "block";
   }
+
+  if (lastCapturedTabId && lastCapturedSlideBounds) {
+    try {
+      await showSlideOverlay(
+        lastCapturedTabId,
+        lastCapturedSlideBounds,
+        currentHologramDataUrl
+      );
+    } catch (error) {
+      console.warn("[Visual Coach] Could not update slide preview overlay", error);
+    }
+  }
 }
 
 showFixedVersionButton?.addEventListener(
@@ -852,7 +869,7 @@ showFixedVersionButton?.addEventListener(
 
       const result = await generateFixedVersion();
 
-      renderFixedVersion(result);
+      await renderFixedVersion(result);
       showFixedVersionButton.style.display = "none";
       setStatus("Fixed version ready");
     } catch (error) {
@@ -886,7 +903,7 @@ updateEditButton?.addEventListener(
 
       const result = await reviseFixedVersion(userFeedback);
 
-      renderFixedVersion(result);
+      await renderFixedVersion(result);
       hologramFeedback.value = "";
       setStatus("Fixed version updated");
     } catch (error) {
