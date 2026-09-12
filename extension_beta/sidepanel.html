@@ -117,6 +117,21 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    .response-box {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 10px;
+
+      background: #1a1d23;
+      border: 1px solid #2b2f36;
+
+      color: white;
+      font-size: 14px;
+      line-height: 1.5;
+
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
@@ -147,6 +162,10 @@
     <button id="sendButton" disabled>
       Send Slide to AI
     </button>
+
+    <div id="responseBox" class="response-box" style="display: none;">
+      <div id="responseText"></div>
+    </div>
 
 
 
