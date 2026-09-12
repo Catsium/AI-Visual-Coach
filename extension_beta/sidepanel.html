@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Visual Coach</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      background: #111318;
+      color: #ffffff;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 360px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin-top: 0;
+      font-size: 22px;
+    }
+
+    p {
+      color: #9ca3af;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    button {
+      width: 100%;
+      border: none;
+      padding: 14px 18px;
+      border-radius: 12px;
+      background: #ffffff;
+      color: #111318;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      opacity: 0.95;
+    }
+
+    .status {
+      margin-top: 14px;
+      font-size: 14px;
+      color: #9ca3af;
+    }
+
+    .preview-wrapper {
+      margin-top: 18px;
+    }
+
+    .preview-wrapper img {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #2b2f36;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>AI Visual Coach</h1>
+    <p>Capture only the current Google Slides slide for later API analysis.</p>
+
+    <button id="captureButton">Capture Current Slide</button>
+
+    <div id="statusText" class="status">Ready</div>
+
+    <div class="preview-wrapper">
+      <img id="slidePreview" alt="Slide preview" />
+    </div>
+  </main>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
