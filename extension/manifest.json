@@ -1,9 +1,39 @@
 {
-    "manifest_version": 3,
-    "name": "AI Visual Coach",
-    "version": "1.0.0",
-    "description": "alpha test",
-    "action" : {
-        "default_popup": "test_index.html"
+  "manifest_version": 3,
+  "name": "AI Visual Coach",
+  "version": "1.0.0",
+  "description": "Visual AI guidance directly inside your browser.",
+
+  "permissions": [
+    "storage",
+    "activeTab",
+    "sidePanel"
+  ],
+
+  "host_permissions": [
+    "https://docs.google.com/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_title": "Open AI Visual Coach"
+  },
+
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://docs.google.com/presentation/*"
+      ],
+      "js": [
+        "content.js"
+      ]
     }
+  ]
 }
