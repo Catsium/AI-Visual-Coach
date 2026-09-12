@@ -60,6 +60,7 @@ class DiagnosisChange(BaseModel):
 class DiagnoseResponse(BaseModel):
     session_id: UUID
     slide_id: str
+    coach_message: str
     problems: list[DiagnosisChange]
     additions: list[DiagnosisChange]
 
@@ -94,6 +95,9 @@ def diagnosis_json_schema() -> dict:
     return {
         "type": "object",
         "properties": {
+            "coach_message": {
+                "type": "string"
+            },
             "problems": {
                 "type": "array",
                 "items": change_schema,
@@ -103,7 +107,7 @@ def diagnosis_json_schema() -> dict:
                 "items": change_schema,
             },
         },
-        "required": ["problems", "additions"],
+        "required": ["coach_message", "problems", "additions"],
         "additionalProperties": False,
     }
 
@@ -165,6 +169,12 @@ Rules:
 - Use previous-slide context only when it genuinely helps consistency across the presentation.
 - Return problems for things that should be changed.
 - Return additions only when adding something is genuinely useful.
+- Prioritize the 1 to 3 changes that matter most. Do not overwhelm the user with minor issues.
+- coach_message is the only user-facing diagnosis text.
+- Write coach_message as 2 to 4 short natural sentences, not a checklist or JSON-style summary.
+- Keep coach_message concise but useful: briefly state the overall impression, then the most important recommended direction.
+- Do not use labels such as "Problem:", "Evidence:", "Fix:", or "Target area:" inside coach_message.
+- Do not repeat every structured field inside coach_message.
 """
 
     payload = {
@@ -225,6 +235,8 @@ Rules:
         content = response.json()["choices"][0]["message"]["content"]
         parsed = json.loads(content)
 
+        coach_message = str(parsed.get("coach_message", "")).strip()
+
         problems = [
             DiagnosisChange.model_validate(item)
             for item in parsed.get("problems", [])
@@ -241,6 +253,7 @@ Rules:
 
     allowed_actions = set(request.supported_actions)
     return (
+        coach_message,
         sanitize_supported_actions(problems, allowed_actions),
         sanitize_supported_actions(additions, allowed_actions),
     )
@@ -330,7 +343,7 @@ def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
             detail=f"Database error while loading session context: {exc}",
         ) from exc
 
-    problems, additions = call_openrouter_diagnosis(
+    coach_message, problems, additions = call_openrouter_diagnosis(
         request,
         previous_slide_context=previous_slide_context,
     )
@@ -338,6 +351,7 @@ def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
     diagnosis = DiagnoseResponse(
         session_id=request.session_id,
         slide_id=request.slide_id,
+        coach_message=coach_message,
         problems=problems,
         additions=additions,
     )

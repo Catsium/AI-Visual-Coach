@@ -5,12 +5,9 @@ const sendButton = document.getElementById("sendButton");
 const responseBox = document.getElementById("responseBox");
 const responseText = document.getElementById("responseText");
 
-
-// Leave blank until your Render backend exists.
 const BACKEND_URL = "https://ai-visual-coach.onrender.com";
 
 let sessionId = null;
-
 let lastCapturedSlideDataUrl = null;
 
 function displayDiagnosis(result) {
@@ -77,7 +74,6 @@ function loadImage(src) {
 }
 
 async function getOrCreateSession() {
-  // Check if we already created one
   const stored =
     await chrome.storage.session.get(
       "sessionId"
@@ -186,9 +182,12 @@ async function diagnoseSlide(tab) {
           slideId,
 
         supported_actions: [
-          "highlight",
-          "arrow",
-          "dim"
+          "change_font_size",
+          "change_font_weight",
+          "change_font_color",
+          "change_text_alignment",
+          "move_object",
+          "resize_object"
         ]
       })
     }
@@ -215,7 +214,6 @@ async function getSlideBounds(tabId) {
     func: () => {
       const candidates = [];
 
-      // Try Google Slides background elements first
       const backgrounds =
         document.querySelectorAll('[id*="-bg"] path');
 
@@ -234,7 +232,6 @@ async function getSlideBounds(tabId) {
         }
       }
 
-      // Fallback: look through SVG elements
       if (candidates.length === 0) {
         const svgs = document.querySelectorAll("svg");
 
@@ -273,7 +270,6 @@ async function getSlideBounds(tabId) {
         return null;
       }
 
-      // Pick biggest visible candidate
       candidates.sort(
         (a, b) =>
           b.width * b.height -
@@ -287,9 +283,6 @@ async function getSlideBounds(tabId) {
         y: rect.top,
         width: rect.width,
         height: rect.height,
-
-        // Useful later when converting CSS pixels
-        // into screenshot pixels
         dpr: window.devicePixelRatio || 1
       };
     }
@@ -303,13 +296,6 @@ async function cropScreenshot(
   bounds
 ) {
   const image = await loadImage(screenshotDataUrl);
-
-  /*
-    Do NOT blindly multiply by devicePixelRatio.
-
-    Instead calculate the actual scale between
-    viewport CSS pixels and screenshot pixels.
-  */
 
   const viewportInfo =
     await chrome.tabs.query({
@@ -402,7 +388,7 @@ function dataUrlToBlob(dataUrl) {
     bytes[i] = binary.charCodeAt(i);
   }
 
-  return new Blob([bytes], {
+  return new Blob(bytes, {
     type: mimeType
   });
 }
@@ -466,20 +452,13 @@ async function sendSlideToBackend(userRequest) {
         slide_image: lastCapturedSlideDataUrl,
 
         supported_actions: [
-          "highlight",
-          "arrow",
-          "dim"
+          "change_font_size",
+          "change_font_weight",
+          "change_font_color",
+          "change_text_alignment",
+          "move_object",
+          "resize_object"
         ]
-
-        /*
-         * FUTURE:
-         *
-         * When /diagnose accepts a prompt,
-         * uncomment this:
-         *
-         * user_request: userRequest
-         *
-         */
       })
     }
   );
@@ -494,6 +473,77 @@ async function sendSlideToBackend(userRequest) {
   }
 
   return await response.json();
+}
+
+function renderDiagnosis(result) {
+  let container =
+    document.getElementById(
+      "diagnosisOutput"
+    );
+
+  if (!container) {
+    container =
+      document.createElement("div");
+
+    container.id =
+      "diagnosisOutput";
+
+    Object.assign(
+      container.style,
+      {
+        marginTop: "18px",
+        padding: "16px",
+        border: "1px solid #353942",
+        borderRadius: "14px",
+        background: "#191c22"
+      }
+    );
+
+    if (statusText?.parentNode) {
+      statusText.parentNode.insertBefore(
+        container,
+        statusText.nextSibling
+      );
+    } else {
+      document.body.appendChild(
+        container
+      );
+    }
+  }
+
+  container.replaceChildren();
+
+  const heading =
+    document.createElement("h2");
+
+  heading.textContent =
+    "Visual Coach";
+
+  Object.assign(
+    heading.style,
+    {
+      margin: "0 0 10px 0",
+      fontSize: "19px"
+    }
+  );
+
+  const message =
+    document.createElement("p");
+
+  message.textContent =
+    result?.coach_message ||
+    "I reviewed the slide, but I couldn't produce a clear recommendation.";
+
+  Object.assign(
+    message.style,
+    {
+      margin: "0",
+      lineHeight: "1.5"
+    }
+  );
+
+  container.appendChild(heading);
+  container.appendChild(message);
 }
 
 messageInput.addEventListener(
@@ -530,11 +580,6 @@ sendButton.addEventListener(
       sendButton.disabled = true;
       messageInput.disabled = true;
 
-      /*
-       * STEP 1:
-       * Find active Google Slides tab
-       */
-
       setStatus(
         "Finding slide..."
       );
@@ -561,11 +606,6 @@ sendButton.addEventListener(
         );
       }
 
-      /*
-       * STEP 2:
-       * Find slide bounds
-       */
-
       const bounds =
         await getSlideBounds(
           tab.id
@@ -576,11 +616,6 @@ sendButton.addEventListener(
           "Could not locate slide"
         );
       }
-
-      /*
-       * STEP 3:
-       * Screenshot
-       */
 
       setStatus(
         "Capturing slide..."
@@ -596,11 +631,6 @@ sendButton.addEventListener(
           }
         );
 
-      /*
-       * STEP 4:
-       * Crop
-       */
-
       const cropped =
         await cropScreenshot(
           screenshot,
@@ -610,11 +640,6 @@ sendButton.addEventListener(
       lastCapturedSlideDataUrl =
         cropped;
 
-      /*
-       * STEP 5:
-       * Preview
-       */
-
       if (slidePreview) {
         slidePreview.src =
           cropped;
@@ -622,11 +647,6 @@ sendButton.addEventListener(
         slidePreview.style.display =
           "block";
       }
-
-      /*
-       * STEP 6:
-       * Send diagnosis
-       */
 
       setStatus(
         "Analyzing..."
@@ -642,11 +662,8 @@ sendButton.addEventListener(
         result
       );
 
-      displayDiagnosis(result);
-
       let overlayImage = null;
 
-      // Future AI response formats
       if (result?.overlay_image) {
         overlayImage =
           result.overlay_image;
@@ -657,13 +674,11 @@ sendButton.addEventListener(
           result.overlay.image;
       }
 
-      // AI doesn't return one yet
       if (!overlayImage) {
         overlayImage =
           createTemplateOverlay();
       }
 
-      // Support raw base64 later too
       if (
         overlayImage &&
         !overlayImage.startsWith("data:") &&
@@ -682,13 +697,8 @@ sendButton.addEventListener(
       
 
       setStatus(
-        "✓ Response received"
+        "✓ Diagnosis received"
       );
-
-      /*
-       * Later:
-       * Display AI message here.
-       */
 
       messageInput.value = "";
 
@@ -710,8 +720,6 @@ sendButton.addEventListener(
     }
   }
 );
-
-
 
 async function initialize() {
   try {
@@ -746,7 +754,6 @@ function createTemplateOverlay() {
       height="900"
       viewBox="0 0 1600 900"
     >
-      <!-- Highlight box -->
       <rect
         x="470"
         y="180"
@@ -759,7 +766,6 @@ function createTemplateOverlay() {
         stroke-dasharray="20 14"
       />
 
-      <!-- Arrow -->
       <path
         d="M 350 550 Q 450 470 560 410"
         fill="none"
@@ -773,7 +779,6 @@ function createTemplateOverlay() {
         fill="#FFD54A"
       />
 
-      <!-- Suggestion -->
       <rect
         x="170"
         y="560"
@@ -812,7 +817,6 @@ function createTemplateOverlay() {
   );
 }
 
-
 async function showSlideOverlay(
   tabId,
   bounds,
@@ -829,7 +833,6 @@ async function showSlideOverlay(
     ],
 
     func: (bounds, imageUrl) => {
-      // Remove previous overlay
       const existing =
         document.getElementById(
           "visual-coach-slide-overlay"
