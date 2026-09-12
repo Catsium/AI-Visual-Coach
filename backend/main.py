@@ -463,10 +463,13 @@ Original user request:
 Latest revision feedback:
 {revision_text}
 
-Decide whether the requested image edit can be expressed using only the diagnosed
-changes and canonical supported actions. For a revision, reject feedback that asks
-for any meaningful change outside those saved diagnosed changes. Never introduce
-new facts, text, objects, branding, or imagery beyond the diagnosis.
+Decide whether the requested image edit can be expressed using the canonical
+supported actions, using the saved diagnosis as design context. A revision may
+target an existing element or apply another canonical action even when that exact
+property was not listed in the original diagnosis. Reject only requests that need
+an action outside the canonical set, change the slide's purpose, or require
+unrelated invented content. For insert_text, use only the exact wording supplied
+by the user or diagnosis; for imagery, follow the insert_user_sourced_image rule.
 
 If it is supported, set can_apply to true, write a precise image_prompt containing
 only the allowed changes, provide a short user-facing summary, and use an empty
