@@ -27,9 +27,14 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 SUPPORTED_ACTION_DEFINITIONS = {
     "change_font_size": "Change the size of existing text.",
+    "change_font_family": "Change the font family of existing text.",
     "change_font_weight": "Change existing text between regular and bold weight.",
     "change_font_color": "Change the colour of existing text.",
     "change_text_alignment": "Change the alignment of existing text.",
+    "change_shape_color": "Change the fill or border colour of an existing shape.",
+    "change_spacing": "Adjust spacing or margins around existing slide content.",
+    "crop_image": "Crop an existing image while preserving its useful subject.",
+    "delete_object": "Remove an existing object from the slide.",
     "insert_text": "Insert new text while preserving the slide's existing wording and purpose.",
     "change_background_color": "Change the slide background colour.",
     "move_object": "Move an existing object on the slide.",

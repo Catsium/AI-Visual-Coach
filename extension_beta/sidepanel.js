@@ -169,9 +169,14 @@ async function diagnoseSlide(tab) {
 
         supported_actions: [
           "change_font_size",
+          "change_font_family",
           "change_font_weight",
           "change_font_color",
           "change_text_alignment",
+          "change_shape_color",
+          "change_spacing",
+          "crop_image",
+          "delete_object",
           "insert_text",
           "change_background_color",
           "move_object",
@@ -442,9 +447,14 @@ async function sendSlideToBackend(userRequest) {
 
         supported_actions: [
           "change_font_size",
+          "change_font_family",
           "change_font_weight",
           "change_font_color",
           "change_text_alignment",
+          "change_shape_color",
+          "change_spacing",
+          "crop_image",
+          "delete_object",
           "insert_text",
           "change_background_color",
           "move_object",
