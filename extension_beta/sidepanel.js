@@ -733,7 +733,7 @@ sendButton.addEventListener(
       await removeSlideOverlay(tab.id);
       overlayVisible = false;
       if (toggleOverlayButton) {
-        toggleOverlayButton.textContent = "Show overlay";
+        toggleOverlayButton.textContent = "Show hologram";
       }
 
       const screenshot =
@@ -978,7 +978,7 @@ async function renderFixedVersion(result) {
   teachingStepIndex = 0;
   overlayVisible = false;
   if (toggleOverlayButton) {
-    toggleOverlayButton.textContent = "Show overlay";
+    toggleOverlayButton.textContent = "Show hologram";
   }
 
   if (hologramActions) {
@@ -1010,7 +1010,7 @@ async function renderFixedVersion(result) {
       );
       overlayVisible = true;
       if (toggleOverlayButton) {
-        toggleOverlayButton.textContent = "Hide overlay";
+        toggleOverlayButton.textContent = "Hide hologram";
       }
     } catch (error) {
       console.warn("[Visual Coach] Could not update slide preview overlay", error);
@@ -1030,8 +1030,8 @@ toggleOverlayButton?.addEventListener("click", async () => {
     if (overlayVisible) {
       await removeSlideOverlay(lastCapturedTabId);
       overlayVisible = false;
-      toggleOverlayButton.textContent = "Show overlay";
-      setStatus("Overlay hidden");
+      toggleOverlayButton.textContent = "Show hologram";
+      setStatus("Hologram hidden");
     } else {
       await showSlideOverlay(
         lastCapturedTabId,
@@ -1039,8 +1039,8 @@ toggleOverlayButton?.addEventListener("click", async () => {
         currentHologramDataUrl
       );
       overlayVisible = true;
-      toggleOverlayButton.textContent = "Hide overlay";
-      setStatus("Overlay shown");
+      toggleOverlayButton.textContent = "Hide hologram";
+      setStatus("Hologram shown");
     }
   } catch (error) {
     console.error("[Visual Coach] Could not toggle slide overlay", error);
