@@ -3,6 +3,7 @@ const statusText = document.getElementById("statusText");
 const slidePreview = document.getElementById("slidePreview");
 const sendButton = document.getElementById("sendButton");
 
+
 // Leave blank until your Render backend exists.
 const BACKEND_URL = "https://ai-visual-coach.onrender.com";
 
@@ -539,6 +540,8 @@ sendButton.addEventListener(
         "Capturing slide..."
       );
 
+      await removeSlideOverlay(tab.id);
+
       const screenshot =
         await chrome.tabs.captureVisibleTab(
           tab.windowId,
@@ -593,6 +596,41 @@ sendButton.addEventListener(
         result
       );
 
+      let overlayImage = null;
+
+      // Future AI response formats
+      if (result?.overlay_image) {
+        overlayImage =
+          result.overlay_image;
+      }
+
+      else if (result?.overlay?.image) {
+        overlayImage =
+          result.overlay.image;
+      }
+
+      // AI doesn't return one yet
+      if (!overlayImage) {
+        overlayImage =
+          createTemplateOverlay();
+      }
+
+      // Support raw base64 later too
+      if (
+        overlayImage &&
+        !overlayImage.startsWith("data:") &&
+        !overlayImage.startsWith("http")
+      ) {
+        overlayImage =
+          `data:image/png;base64,${overlayImage}`;
+      }
+
+      await showSlideOverlay(
+        tab.id,
+        bounds,
+        overlayImage
+      );
+
       setStatus(
         "✓ Response received"
       );
@@ -623,6 +661,8 @@ sendButton.addEventListener(
   }
 );
 
+
+
 async function initialize() {
   try {
     setStatus(
@@ -647,3 +687,178 @@ async function initialize() {
 }
 
 initialize();
+
+function createTemplateOverlay() {
+  const svg = `
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="1600"
+      height="900"
+      viewBox="0 0 1600 900"
+    >
+      <!-- Highlight box -->
+      <rect
+        x="470"
+        y="180"
+        width="660"
+        height="250"
+        rx="24"
+        fill="rgba(255, 215, 0, 0.12)"
+        stroke="#FFD54A"
+        stroke-width="10"
+        stroke-dasharray="20 14"
+      />
+
+      <!-- Arrow -->
+      <path
+        d="M 350 550 Q 450 470 560 410"
+        fill="none"
+        stroke="#FFD54A"
+        stroke-width="14"
+        stroke-linecap="round"
+      />
+
+      <polygon
+        points="560,410 520,425 545,455"
+        fill="#FFD54A"
+      />
+
+      <!-- Suggestion -->
+      <rect
+        x="170"
+        y="560"
+        width="560"
+        height="120"
+        rx="22"
+        fill="rgba(15, 17, 22, 0.9)"
+      />
+
+      <text
+        x="210"
+        y="615"
+        fill="white"
+        font-size="34"
+        font-family="Arial, sans-serif"
+        font-weight="600"
+      >
+        Template suggestion
+      </text>
+
+      <text
+        x="210"
+        y="655"
+        fill="#CCCCCC"
+        font-size="25"
+        font-family="Arial, sans-serif"
+      >
+        AI visual guidance will appear here.
+      </text>
+    </svg>
+  `;
+
+  return (
+    "data:image/svg+xml;charset=utf-8," +
+    encodeURIComponent(svg)
+  );
+}
+
+
+async function showSlideOverlay(
+  tabId,
+  bounds,
+  imageUrl
+) {
+  await chrome.scripting.executeScript({
+    target: {
+      tabId
+    },
+
+    args: [
+      bounds,
+      imageUrl
+    ],
+
+    func: (bounds, imageUrl) => {
+      // Remove previous overlay
+      const existing =
+        document.getElementById(
+          "visual-coach-slide-overlay"
+        );
+
+      if (existing) {
+        existing.remove();
+      }
+
+      const overlay =
+        document.createElement("div");
+
+      overlay.id =
+        "visual-coach-slide-overlay";
+
+      Object.assign(
+        overlay.style,
+        {
+          position: "fixed",
+
+          left: `${bounds.x}px`,
+          top: `${bounds.y}px`,
+
+          width: `${bounds.width}px`,
+          height: `${bounds.height}px`,
+
+          zIndex: "2147483647",
+
+          pointerEvents: "none",
+
+          overflow: "hidden",
+
+          opacity: "0.7"
+        }
+      );
+
+      const image =
+        document.createElement("img");
+
+      image.src = imageUrl;
+
+      Object.assign(
+        image.style,
+        {
+          width: "100%",
+          height: "100%",
+
+          objectFit: "fill",
+
+          pointerEvents: "none",
+
+          userSelect: "none"
+        }
+      );
+
+      overlay.appendChild(image);
+
+      document.body.appendChild(
+        overlay
+      );
+    }
+  });
+}
+
+async function removeSlideOverlay(tabId) {
+  await chrome.scripting.executeScript({
+    target: {
+      tabId
+    },
+
+    func: () => {
+      const overlay =
+        document.getElementById(
+          "visual-coach-slide-overlay"
+        );
+
+      if (overlay) {
+        overlay.remove();
+      }
+    }
+  });
+}
