@@ -11,7 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import requests
 import psycopg
-from openai import OpenAI
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -23,6 +22,7 @@ from teaching import (
 )
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_IMAGE_URL = "https://openrouter.ai/api/v1/images"
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 SUPPORTED_ACTION_DEFINITIONS = {
@@ -616,6 +616,7 @@ def decode_image_data_url(data_url: str, filename: str) -> io.BytesIO:
 
     image = io.BytesIO(image_bytes)
     image.name = filename
+    image.content_type = header.removeprefix("data:").removesuffix(";base64")
     return image
 
 
@@ -627,16 +628,56 @@ def reject_embedded_image_data(text: str) -> None:
         )
 
 
+def post_openrouter_image(payload: dict, api_key: str):
+    return requests.post(
+        OPENROUTER_IMAGE_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=180,
+    )
+
+
 def generate_hologram_image(prompt: str, images: list[io.BytesIO]) -> str:
-    try:
-        response = OpenAI(api_key=os.getenv("OPENAI_API_KEY")).images.edit(
-            model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare"),
-            image=images,
-            prompt=prompt,
-            quality=os.getenv("OPENAI_IMAGE_QUALITY", "medium"),
-            output_format="png",
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OPENROUTER_API_KEY is not configured",
         )
-        encoded = response.data[0].b64_json
+
+    model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare").strip()
+    if "/" not in model:
+        model = f"openai/{model}"
+
+    input_references = []
+    for image in images:
+        encoded_image = base64.b64encode(image.getvalue()).decode("ascii")
+        media_type = getattr(image, "content_type", "image/png")
+        input_references.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{media_type};base64,{encoded_image}",
+                },
+            }
+        )
+
+    try:
+        response = post_openrouter_image(
+            {
+                "model": model,
+                "prompt": prompt,
+                "quality": os.getenv("OPENAI_IMAGE_QUALITY", "medium"),
+                "output_format": "png",
+                "input_references": input_references,
+            },
+            api_key,
+        )
+        response.raise_for_status()
+        encoded = response.json()["data"][0]["b64_json"]
         if not isinstance(encoded, str) or not encoded:
             raise ValueError("Image response did not contain b64_json")
     except Exception as exc:

@@ -98,12 +98,10 @@ class HologramEndpointTests(unittest.TestCase):
             "slide_image": image_data_url(b"original-slide"),
         }
 
-    def openai_success(self, encoded: str = "Z2VuZXJhdGVk") -> MagicMock:
-        client = MagicMock()
-        client.images.edit.return_value = MagicMock(
-            data=[MagicMock(b64_json=encoded)]
-        )
-        return client
+    def openrouter_image_success(self, encoded: str = "Z2VuZXJhdGVk") -> MagicMock:
+        response = MagicMock()
+        response.json.return_value = {"data": [{"b64_json": encoded}]}
+        return response
 
     def luna_acceptance(self, summary: str = "Clearer hierarchy") -> FakeResponse:
         return FakeResponse(
@@ -120,14 +118,14 @@ class HologramEndpointTests(unittest.TestCase):
         with (
             patch("main.get_db", return_value=database),
             patch("main.requests.post") as luna,
-            patch("main.OpenAI") as openai,
+            patch("main.post_openrouter_image") as image_api,
         ):
             response = self.client.post("/hologram", json=self.generation_payload)
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Unknown session_id")
         luna.assert_not_called()
-        openai.assert_not_called()
+        image_api.assert_not_called()
 
     def test_missing_diagnosis_is_a_conflict(self) -> None:
         database = FakeDatabase(diagnosis=None)
@@ -179,12 +177,12 @@ class HologramEndpointTests(unittest.TestCase):
     def test_user_sourced_image_is_a_canonical_supported_action(self) -> None:
         self.diagnosis["problems"][0]["supported_action"] = "insert_user_sourced_image"
         database = FakeDatabase(diagnosis=self.diagnosis)
-        openai_client = self.openai_success()
+        image_response = self.openrouter_image_success()
         with (
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=self.luna_acceptance()),
-            patch("main.OpenAI", return_value=openai_client),
+            patch("main.post_openrouter_image", return_value=image_response),
         ):
             response = self.client.post("/hologram", json=self.generation_payload)
 
@@ -192,12 +190,12 @@ class HologramEndpointTests(unittest.TestCase):
 
     def test_luna_receives_full_diagnosis_and_definitions_but_no_image(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
-        openai_client = self.openai_success()
+        image_response = self.openrouter_image_success()
         with (
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=self.luna_acceptance()) as luna,
-            patch("main.OpenAI", return_value=openai_client),
+            patch("main.post_openrouter_image", return_value=image_response),
         ):
             response = self.client.post("/hologram", json=self.generation_payload)
 
@@ -218,7 +216,7 @@ class HologramEndpointTests(unittest.TestCase):
 
     def test_revision_luna_request_contains_no_image_data(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
-        openai_client = self.openai_success()
+        image_response = self.openrouter_image_success()
         payload = {
             "session_id": self.session_id,
             "slide_id": "slide-1",
@@ -230,7 +228,7 @@ class HologramEndpointTests(unittest.TestCase):
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=self.luna_acceptance()) as luna,
-            patch("main.OpenAI", return_value=openai_client),
+            patch("main.post_openrouter_image", return_value=image_response),
         ):
             response = self.client.post("/revise-hologram", json=payload)
 
@@ -265,7 +263,7 @@ class HologramEndpointTests(unittest.TestCase):
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=rejection),
-            patch("main.OpenAI") as openai,
+            patch("main.post_openrouter_image") as image_api,
         ):
             response = self.client.post("/revise-hologram", json=payload)
 
@@ -274,11 +272,11 @@ class HologramEndpointTests(unittest.TestCase):
             response.json()["detail"],
             "That request is outside the supported changes.",
         )
-        openai.assert_not_called()
+        image_api.assert_not_called()
 
     def test_revision_uses_configured_model_quality_and_image_order(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
-        openai_client = self.openai_success("cmV2aXNlZA==")
+        image_response = self.openrouter_image_success("cmV2aXNlZA==")
         payload = {
             "session_id": self.session_id,
             "slide_id": "slide-1",
@@ -292,36 +290,48 @@ class HologramEndpointTests(unittest.TestCase):
                 environ,
                 {
                     "OPENROUTER_API_KEY": "mock",
-                    "OPENAI_API_KEY": "mock-openai",
                     "OPENAI_IMAGE_MODEL": "configured-flare",
                     "OPENAI_IMAGE_QUALITY": "high",
                 },
                 clear=False,
             ),
             patch("main.requests.post", return_value=self.luna_acceptance()),
-            patch("main.OpenAI", return_value=openai_client) as openai,
+            patch(
+                "main.post_openrouter_image",
+                return_value=image_response,
+            ) as image_api,
         ):
             response = self.client.post("/revise-hologram", json=payload)
 
         self.assertEqual(response.status_code, 200)
-        openai.assert_called_once_with(api_key="mock-openai")
-        kwargs = openai_client.images.edit.call_args.kwargs
-        self.assertEqual(kwargs["model"], "configured-flare")
-        self.assertEqual(kwargs["quality"], "high")
-        self.assertEqual(kwargs["output_format"], "png")
-        self.assertNotIn("size", kwargs)
-        images = kwargs["image"]
-        self.assertEqual(images[0].read(), b"current-hologram")
-        self.assertEqual(images[1].read(), b"original-slide")
+        image_api.assert_called_once()
+        request_json, api_key = image_api.call_args.args
+        self.assertEqual(api_key, "mock")
+        self.assertEqual(request_json["model"], "openai/configured-flare")
+        self.assertEqual(request_json["quality"], "high")
+        self.assertEqual(request_json["output_format"], "png")
+        self.assertNotIn("size", request_json)
+        references = request_json["input_references"]
+        self.assertEqual(len(references), 2)
+        self.assertTrue(
+            references[0]["image_url"]["url"].endswith(
+                base64.b64encode(b"current-hologram").decode("ascii")
+            )
+        )
+        self.assertTrue(
+            references[1]["image_url"]["url"].endswith(
+                base64.b64encode(b"original-slide").decode("ascii")
+            )
+        )
 
     def test_success_returns_png_data_url_and_luna_summary(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
-        openai_client = self.openai_success("cG5nLWJ5dGVz")
+        image_response = self.openrouter_image_success("cG5nLWJ5dGVz")
         with (
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=self.luna_acceptance("Improved title")),
-            patch("main.OpenAI", return_value=openai_client),
+            patch("main.post_openrouter_image", return_value=image_response),
         ):
             response = self.client.post("/hologram", json=self.generation_payload)
 
@@ -434,22 +444,23 @@ class HologramEndpointTests(unittest.TestCase):
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=FakeResponse({"can_apply": True})),
-            patch("main.OpenAI") as openai,
+            patch("main.post_openrouter_image") as image_api,
         ):
             response = self.client.post("/hologram", json=self.generation_payload)
 
         self.assertEqual(response.status_code, 502)
-        openai.assert_not_called()
+        image_api.assert_not_called()
 
-    def test_openai_failure_is_a_concise_bad_gateway(self) -> None:
+    def test_openrouter_image_failure_is_a_concise_bad_gateway(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
-        openai_client = MagicMock()
-        openai_client.images.edit.side_effect = RuntimeError("secret provider details")
         with (
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=self.luna_acceptance()),
-            patch("main.OpenAI", return_value=openai_client),
+            patch(
+                "main.post_openrouter_image",
+                side_effect=RuntimeError("secret provider details"),
+            ),
         ):
             response = self.client.post("/hologram", json=self.generation_payload)
 
@@ -459,12 +470,12 @@ class HologramEndpointTests(unittest.TestCase):
 
     def test_endpoints_never_persist_image_data(self) -> None:
         database = FakeDatabase(diagnosis=self.diagnosis)
-        openai_client = self.openai_success()
+        image_response = self.openrouter_image_success()
         with (
             patch("main.get_db", return_value=database),
             patch.dict(environ, {"OPENROUTER_API_KEY": "mock"}, clear=False),
             patch("main.requests.post", return_value=self.luna_acceptance()),
-            patch("main.OpenAI", return_value=openai_client),
+            patch("main.post_openrouter_image", return_value=image_response),
         ):
             response = self.client.post("/hologram", json=self.generation_payload)
 
