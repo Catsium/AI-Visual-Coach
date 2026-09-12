@@ -4,6 +4,6 @@
     "version": "1.0.0",
     "description": "alpha test",
     "action" : {
-
+        "default_popup": "test_index.html"
     }
 }
