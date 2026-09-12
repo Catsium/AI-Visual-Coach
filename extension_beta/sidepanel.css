@@ -122,6 +122,26 @@ svg { display: block; flex: 0 0 auto; }
 .teaching-navigation .secondary-button {
   flex: 1;
 }
+.teaching-card { white-space: normal; }
+.teaching-pinned-preview {
+  position: sticky;
+  top: 42px;
+  z-index: 10;
+  margin: calc(var(--space-5) * -1) calc(var(--space-6) * -1) var(--space-5);
+  padding: var(--space-3) var(--space-6) var(--space-4);
+  border-bottom: 1px solid var(--divider);
+  background: var(--background);
+}
+.teaching-pinned-preview .section-heading { margin-bottom: var(--space-2); }
+.teaching-pinned-preview img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
 .teaching-card h3 { margin: 0 0 var(--space-3); font-size: 16px; font-weight: 600; }
 .teaching-overview { margin: 0 0 var(--space-5); color: var(--muted); line-height: 1.6; }
 .teaching-step { padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }

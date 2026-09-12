@@ -15,6 +15,7 @@ const showTeachingButton = document.getElementById("showTeachingButton");
 const toggleOverlayButton = document.getElementById("toggleOverlayButton");
 const doneButton = document.getElementById("doneButton");
 const teachingSection = document.getElementById("teachingSection");
+const teachingPinnedImage = document.getElementById("teachingPinnedImage");
 const teachingOverview = document.getElementById("teachingOverview");
 const teachingStepNumber = document.getElementById("teachingStepNumber");
 const teachingStepTotal = document.getElementById("teachingStepTotal");
@@ -785,6 +786,10 @@ sendButton.addEventListener(
         fixedVersionImage.removeAttribute("src");
       }
 
+      if (teachingPinnedImage) {
+        teachingPinnedImage.removeAttribute("src");
+      }
+
       lastCapturedTabId = tab.id;
       lastCapturedSlideBounds = bounds;
 
@@ -964,6 +969,10 @@ async function renderFixedVersion(result) {
 
   if (fixedVersionImage) {
     fixedVersionImage.src = currentHologramDataUrl;
+  }
+
+  if (teachingPinnedImage) {
+    teachingPinnedImage.src = currentHologramDataUrl;
   }
 
   if (fixedVersionSummary) {
@@ -1216,6 +1225,10 @@ async function endCoachingSession() {
     fixedVersionImage.removeAttribute("src");
   }
 
+  if (teachingPinnedImage) {
+    teachingPinnedImage.removeAttribute("src");
+  }
+
   if (fixedVersionSummary) {
     fixedVersionSummary.textContent = "";
   }
@@ -1303,6 +1316,18 @@ showTeachingButton?.addEventListener("click", async () => {
   try {
     setButtonLoading(showTeachingButton, true, "Preparing");
     setStatus("Preparing your PowerPoint steps...");
+
+    if (overlayVisible && lastCapturedTabId) {
+      try {
+        await removeSlideOverlay(lastCapturedTabId);
+      } catch (error) {
+        console.warn("[Visual Coach] Could not hide hologram for teaching", error);
+      }
+      overlayVisible = false;
+      if (toggleOverlayButton) {
+        toggleOverlayButton.textContent = "Show hologram";
+      }
+    }
 
     teachingPlan = await requestTeachingPlan();
     teachingStepIndex = 0;
