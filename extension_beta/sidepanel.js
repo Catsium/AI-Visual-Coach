@@ -2,6 +2,8 @@ const messageInput = document.getElementById("messageInput");
 const statusText = document.getElementById("statusText");
 const slidePreview = document.getElementById("slidePreview");
 const sendButton = document.getElementById("sendButton");
+const responseBox = document.getElementById("responseBox");
+const responseText = document.getElementById("responseText");
 
 
 // Leave blank until your Render backend exists.
@@ -10,6 +12,50 @@ const BACKEND_URL = "https://ai-visual-coach.onrender.com";
 let sessionId = null;
 
 let lastCapturedSlideDataUrl = null;
+
+function displayDiagnosis(result) {
+  responseBox.style.display = "block";
+
+  // If backend returns your DiagnoseResponse structure
+  if (result?.problems) {
+    let output = "";
+
+    for (const problem of result.problems) {
+      output += `Issue: ${problem.issue}\n`;
+
+      if (problem.evidence) {
+        output += `Evidence: ${problem.evidence}\n`;
+      }
+
+      if (problem.fix) {
+        output += `Suggestion: ${problem.fix}\n`;
+      }
+
+      if (problem.target_area) {
+        output += `Target: ${problem.target_area}\n`;
+      }
+
+      if (problem.supported_action) {
+        output += `Action: ${problem.supported_action}\n`;
+      }
+
+      output += "\n";
+    }
+
+    responseText.textContent =
+      output.trim();
+
+    return;
+  }
+
+  // Fallback: display whatever came back
+  responseText.textContent =
+    JSON.stringify(
+      result,
+      null,
+      2
+    );
+}
 
 function setStatus(message) {
   console.log("[Visual Coach]", message);
@@ -596,6 +642,8 @@ sendButton.addEventListener(
         result
       );
 
+      displayDiagnosis(result);
+
       let overlayImage = null;
 
       // Future AI response formats
@@ -630,6 +678,8 @@ sendButton.addEventListener(
         bounds,
         overlayImage
       );
+
+      
 
       setStatus(
         "✓ Response received"
