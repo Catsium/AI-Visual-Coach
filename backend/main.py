@@ -21,6 +21,7 @@ class SessionResponse(BaseModel):
 
 class DiagnoseRequest(BaseModel):
     session_id: UUID
+    slide_id: str = Field(min_length=1)
     user_request: str = Field(min_length=1)
     slide_image: str = Field(min_length=1)
     supported_actions: list[str] = Field(default_factory=list)
@@ -36,6 +37,7 @@ class DiagnosisChange(BaseModel):
 
 class DiagnoseResponse(BaseModel):
     session_id: UUID
+    slide_id: str
     problems: list[DiagnosisChange]
     additions: list[DiagnosisChange]
 
@@ -50,7 +52,8 @@ app.add_middleware(
 )
 
 # This milestone intentionally keeps coaching sessions in one application process.
-sessions: dict[UUID, datetime] = {}
+# Each session represents one presentation-level Visual Coach interaction.
+sessions: dict[UUID, dict] = {}
 
 
 @app.get("/")
@@ -66,7 +69,10 @@ def health():
 @app.post("/session", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 def create_session() -> SessionResponse:
     session_id = uuid4()
-    sessions[session_id] = datetime.now(timezone.utc)
+    sessions[session_id] = {
+        "created_at": datetime.now(timezone.utc),
+        "slides": {},
+    }
     return SessionResponse(session_id=session_id)
 
 
@@ -74,6 +80,10 @@ def create_session() -> SessionResponse:
 def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
     if request.session_id not in sessions:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown session_id")
+
+    session = sessions[request.session_id]
+    if request.slide_id not in session["slides"]:
+        session["slides"][request.slide_id] = {}
 
     supported_action = request.supported_actions[0] if request.supported_actions else None
     fix = (
@@ -84,6 +94,7 @@ def diagnose(request: DiagnoseRequest) -> DiagnoseResponse:
 
     return DiagnoseResponse(
         session_id=request.session_id,
+        slide_id=request.slide_id,
         problems=[
             DiagnosisChange(
                 issue="Visual hierarchy needs review",
