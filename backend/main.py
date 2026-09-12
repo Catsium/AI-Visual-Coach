@@ -30,6 +30,8 @@ SUPPORTED_ACTION_DEFINITIONS = {
     "change_font_weight": "Change existing text between regular and bold weight.",
     "change_font_color": "Change the colour of existing text.",
     "change_text_alignment": "Change the alignment of existing text.",
+    "insert_text": "Insert new text while preserving the slide's existing wording and purpose.",
+    "change_background_color": "Change the slide background colour.",
     "move_object": "Move an existing object on the slide.",
     "resize_object": "Resize an existing object on the slide.",
     "insert_user_sourced_image": (

@@ -172,6 +172,8 @@ async function diagnoseSlide(tab) {
           "change_font_weight",
           "change_font_color",
           "change_text_alignment",
+          "insert_text",
+          "change_background_color",
           "move_object",
           "resize_object",
           "insert_user_sourced_image"
@@ -443,6 +445,8 @@ async function sendSlideToBackend(userRequest) {
           "change_font_weight",
           "change_font_color",
           "change_text_alignment",
+          "insert_text",
+          "change_background_color",
           "move_object",
           "resize_object",
           "insert_user_sourced_image"
@@ -694,12 +698,7 @@ sendButton.addEventListener(
           result.overlay.image;
       }
 
-      if (!overlayImage) {
-        overlayImage =
-          createTestRedOverlay(
-            bounds
-          );
-      }
+     
 
       if (
         overlayImage &&
@@ -989,7 +988,7 @@ async function showSlideOverlay(
 
           overflow: "hidden",
 
-          opacity: "0.7"
+          opacity: "1.0"
         }
       );
 
