@@ -477,6 +477,73 @@ async function sendSlideToBackend(userRequest) {
   return await response.json();
 }
 
+function appendCoachMarkdown(parent, text) {
+  const pattern = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parent.appendChild(
+        document.createTextNode(text.slice(lastIndex, match.index))
+      );
+    }
+
+    const strong = document.createElement("strong");
+    strong.textContent = match[1];
+    parent.appendChild(strong);
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parent.appendChild(document.createTextNode(text.slice(lastIndex)));
+  }
+}
+
+function renderCoachMarkdown(container, markdown) {
+  const lines = String(markdown || "").split(/\r?\n/);
+  let list = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      list = null;
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      if (!list) {
+        list = document.createElement("ul");
+        Object.assign(list.style, {
+          margin: "0 0 12px 18px",
+          padding: "0",
+          lineHeight: "1.5"
+        });
+        container.appendChild(list);
+      }
+
+      const item = document.createElement("li");
+      item.style.marginBottom = "6px";
+      appendCoachMarkdown(item, bullet[1]);
+      list.appendChild(item);
+      continue;
+    }
+
+    list = null;
+    const paragraph = document.createElement("p");
+    paragraph.style.margin = "0 0 12px 0";
+
+    if (/^\*\*.+\*\*$/.test(line)) {
+      paragraph.style.fontWeight = "600";
+    }
+
+    appendCoachMarkdown(paragraph, line);
+    container.appendChild(paragraph);
+  }
+}
+
 function renderDiagnosis(result) {
   let container =
     document.getElementById(
@@ -529,12 +596,13 @@ function renderDiagnosis(result) {
     }
   );
 
-  const message =
-    document.createElement("p");
+  const message = document.createElement("div");
 
-  message.textContent =
+  renderCoachMarkdown(
+    message,
     result?.coach_message ||
-    "I reviewed the slide, but I couldn't produce a clear recommendation.";
+      "I reviewed the slide, but I couldn't produce a clear recommendation."
+  );
 
   Object.assign(
     message.style,
