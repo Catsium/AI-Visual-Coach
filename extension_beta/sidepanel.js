@@ -10,50 +10,6 @@ const BACKEND_URL = "https://ai-visual-coach.onrender.com";
 let sessionId = null;
 let lastCapturedSlideDataUrl = null;
 
-function displayDiagnosis(result) {
-  responseBox.style.display = "block";
-
-  // If backend returns your DiagnoseResponse structure
-  if (result?.problems) {
-    let output = "";
-
-    for (const problem of result.problems) {
-      output += `Issue: ${problem.issue}\n`;
-
-      if (problem.evidence) {
-        output += `Evidence: ${problem.evidence}\n`;
-      }
-
-      if (problem.fix) {
-        output += `Suggestion: ${problem.fix}\n`;
-      }
-
-      if (problem.target_area) {
-        output += `Target: ${problem.target_area}\n`;
-      }
-
-      if (problem.supported_action) {
-        output += `Action: ${problem.supported_action}\n`;
-      }
-
-      output += "\n";
-    }
-
-    responseText.textContent =
-      output.trim();
-
-    return;
-  }
-
-  // Fallback: display whatever came back
-  responseText.textContent =
-    JSON.stringify(
-      result,
-      null,
-      2
-    );
-}
-
 function setStatus(message) {
   console.log("[Visual Coach]", message);
 
@@ -678,7 +634,9 @@ sendButton.addEventListener(
 
       if (!overlayImage) {
         overlayImage =
-          createTemplateOverlay();
+          createTestRedOverlay(
+            bounds
+          );
       }
 
       if (
@@ -747,77 +705,6 @@ async function initialize() {
 }
 
 initialize();
-
-function createTemplateOverlay() {
-  const svg = `
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="1600"
-      height="900"
-      viewBox="0 0 1600 900"
-    >
-      <rect
-        x="470"
-        y="180"
-        width="660"
-        height="250"
-        rx="24"
-        fill="rgba(255, 215, 0, 0.12)"
-        stroke="#FFD54A"
-        stroke-width="10"
-        stroke-dasharray="20 14"
-      />
-
-      <path
-        d="M 350 550 Q 450 470 560 410"
-        fill="none"
-        stroke="#FFD54A"
-        stroke-width="14"
-        stroke-linecap="round"
-      />
-
-      <polygon
-        points="560,410 520,425 545,455"
-        fill="#FFD54A"
-      />
-
-      <rect
-        x="170"
-        y="560"
-        width="560"
-        height="120"
-        rx="22"
-        fill="rgba(15, 17, 22, 0.9)"
-      />
-
-      <text
-        x="210"
-        y="615"
-        fill="white"
-        font-size="34"
-        font-family="Arial, sans-serif"
-        font-weight="600"
-      >
-        Template suggestion
-      </text>
-
-      <text
-        x="210"
-        y="655"
-        fill="#CCCCCC"
-        font-size="25"
-        font-family="Arial, sans-serif"
-      >
-        AI visual guidance will appear here.
-      </text>
-    </svg>
-  `;
-
-  return (
-    "data:image/svg+xml;charset=utf-8," +
-    encodeURIComponent(svg)
-  );
-}
 
 async function showSlideOverlay(
   tabId,
@@ -916,4 +803,39 @@ async function removeSlideOverlay(tabId) {
       }
     }
   });
+}
+
+
+function createTestRedOverlay(bounds) {
+  // Create an image with the exact same aspect ratio as the slide
+  const width = 1600;
+
+  const aspectRatio =
+    bounds.width / bounds.height;
+
+  const height =
+    Math.round(width / aspectRatio);
+
+  const canvas =
+    document.createElement("canvas");
+
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx =
+    canvas.getContext("2d");
+
+  // Fake AI-generated image
+  ctx.fillStyle = "#ff0000";
+
+  ctx.fillRect(
+    0,
+    0,
+    width,
+    height
+  );
+
+  return canvas.toDataURL(
+    "image/png"
+  );
 }
