@@ -171,10 +171,16 @@ Rules:
 - Return additions only when adding something is genuinely useful.
 - Prioritize the 1 to 3 changes that matter most. Do not overwhelm the user with minor issues.
 - coach_message is the only user-facing diagnosis text.
-- Write coach_message as 2 to 4 short natural sentences, not a checklist or JSON-style summary.
-- Keep coach_message concise but useful: briefly state the overall impression, then the most important recommended direction.
-- Do not use labels such as "Problem:", "Evidence:", "Fix:", or "Target area:" inside coach_message.
-- Do not repeat every structured field inside coach_message.
+- Write coach_message in CEFR B1 / intermediate English.
+- Use common words, short sentences, and clear explanations.
+- Keep it concise without removing useful design advice.
+- Start with one short overall observation.
+- Then use the Markdown heading **Main problems** followed by at most 3 short bullet points.
+- Then use the Markdown heading **What I would change** followed by 1 to 3 short sentences.
+- Use **bold Markdown** only for the most important words or changes.
+- Do not use technical design jargon unless it is necessary.
+- Do not include internal fields such as supported_action or target_area in coach_message.
+- Do not repeat every structured diagnosis field inside coach_message.
 """
 
     payload = {
